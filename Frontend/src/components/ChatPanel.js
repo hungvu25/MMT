@@ -62,6 +62,7 @@ export function createChatPanel() {
         
         <div class="p-3">
           <textarea 
+            id="message-input"
             placeholder="Message #Design Team..." 
             class="w-full bg-transparent border-0 focus:ring-0 p-0 text-slate-800 placeholder-slate-400 resize-none h-[48px] max-h-[200px]"
           ></textarea>
@@ -71,7 +72,8 @@ export function createChatPanel() {
            <div class="text-[10px] text-gray-400 font-medium">
              Enter to send, Shift + Enter for new line
            </div>
-           <button class="bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg px-4 py-1.5 text-sm font-medium transition-colors shadow-sm flex items-center gap-2">
+           <button id="send-btn"
+            class="bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg px-4 py-1.5 text-sm font-medium transition-colors shadow-sm flex items-center gap-2">
              <span>Send</span>
              <svg class="w-3.5 h-3.5" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
            </button>
@@ -102,5 +104,16 @@ export function createChatPanel() {
         container.appendChild(createMessage(msg));
     });
 
+    
+
     return panel;
 }
+
+export function appendMessageToUI(msg) {
+  const container = document.getElementById('messages-container');
+  if (!container) return;
+
+  container.appendChild(createMessage(msg));
+  container.scrollTop = container.scrollHeight; // auto scroll xuống cuối
+}
+

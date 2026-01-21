@@ -4,6 +4,9 @@ import { createChatPanel } from './components/ChatPanel.js';
 import { createRightPanel } from './components/RightPanel.js';
 import { createLoginPage } from './components/pages/Login.js';
 import { createRegisterPage } from './components/pages/Register.js';
+import { connectWS, sendEvent, onWSEvent } from "./ws";
+import { appendMessageToUI } from './components/ChatPanel.js'; 
+
 
 const app = document.querySelector('#app');
 
@@ -34,8 +37,28 @@ function render() {
         app.appendChild(chatPanel);
         app.appendChild(rightPanel);
 
+        //Connect WebSocket
+        connectWS();
+
+        onWSEvent((data) => {
+          // server đang echo: "echo: ..."
+          appendMessageToUI({
+            type: "text",
+            user: "Server",
+            text: data,
+            time: new Date().toLocaleTimeString([], {
+              hour: "2-digit",
+              minute: "2-digit",
+            }),
+            isMe: false,
+            status: "delivered",
+          });
+        });
+
+
         // Setup Chat Logic
         setupChatLogic(sidebar, rightPanel);
+        
     }
 }
 
@@ -81,6 +104,8 @@ function setupChatLogic(sidebar, rightPanel) {
         };
 
         drawerOverlay.addEventListener('click', closeDrawer);
+
+        
     }
 
     // Right Panel Toggle (Info button)
@@ -96,7 +121,68 @@ function setupChatLogic(sidebar, rightPanel) {
             }
         });
     }
+
+    const sendBtn = document.getElementById('send-btn');
+        const msgInput = document.getElementById('message-input');
+        if (sendBtn && msgInput) {
+            sendBtn.addEventListener('click', () => {
+              const text = msgInput.value.trim();
+              if (!text) return;
+
+              // 1) hiện lên UI trước
+              appendMessageToUI({
+                type: "text",
+                user: "Me",
+                text,
+                time: new Date().toLocaleTimeString([], {
+                  hour: "2-digit",
+                  minute: "2-digit",
+                }),
+                isMe: true,
+                status: "sent",
+              });
+
+              const clientMsgId = "c_" + Date.now();
+
+              sendEvent(
+                "send_message",
+                {
+                  conversation_id: "group:design-team", // tạm hardcode
+                  client_msg_id: clientMsgId,
+                  msg_type: "text",
+                  text,
+                },
+                "r_" + clientMsgId,
+                );
+                
+                // 2) gửi lên server
+
+              msgInput.value = "";
+            });
+
+        // Enter to send, Shift+Enter for newline
+            msgInput.addEventListener('keydown', (e) => {
+                if (e.key === 'Enter' && !e.shiftKey) { 
+                e.preventDefault(); 
+                sendBtn.click();}
+            });
+        }
 }
+let myUserId = "U1"; // tạm hardcode, sau này lấy từ login
+let currentConversationId = "group:design-team"; // mặc định vào group
+function dmId(a, b) {
+  const [x, y] = [a, b].sort();
+  return `dm:${x}:${y}`;
+}
+
+document.addEventListener("selectConversation", (e) => {
+  currentConversationId = e.detail.conversation_id;
+  sendEvent(
+    "join",
+    { conversation_id: currentConversationId },
+    "r_join_" + Date.now(),
+  );
+});
 
 // Initial Render
 render();
