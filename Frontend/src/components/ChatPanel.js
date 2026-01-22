@@ -1,4 +1,5 @@
 import { createMessage } from './Message.js';
+import { getState } from '../state.js';
 
 export function createChatPanel() {
     const panel = document.createElement('main');
@@ -6,7 +7,7 @@ export function createChatPanel() {
 
     panel.innerHTML = `
     <!-- Chat Header -->
-    <header class="h-16 flex items-center px-6 border-b border-gray-100 shrink-0 bg-white/80 backdrop-blur-sm sticky top-0 z-10">
+    <header id="chat-header" class="h-16 flex items-center px-6 border-b border-gray-100 shrink-0 bg-white/80 backdrop-blur-sm sticky top-0 z-10">
       <div class="mr-4 md:hidden">
         <button id="menu-btn" class="p-2 -ml-2 rounded-md hover:bg-gray-100 text-gray-600">
            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
@@ -15,14 +16,13 @@ export function createChatPanel() {
       
       <div class="flex items-center min-w-0 flex-1">
         <div class="mr-3 relative">
-           <div class="w-10 h-10 rounded-lg bg-indigo-100 text-indigo-600 flex items-center justify-center font-bold text-lg">#</div>
+           <div class="w-10 h-10 rounded-lg bg-gray-200 text-gray-600 flex items-center justify-center font-bold text-lg">?</div>
         </div>
         <div>
           <h2 class="font-bold text-slate-800 text-lg leading-tight truncate flex items-center gap-2">
-            Design Team
-            <span class="px-2 py-0.5 rounded-full bg-slate-100 text-slate-500 text-xs font-normal border border-slate-200">Group</span>
+            Select a conversation
           </h2>
-          <p class="text-xs text-slate-500 truncate">Discussing the new design system and UI components • 24 members</p>
+          <p class="text-xs text-slate-500 truncate">Choose a chat from the sidebar to start messaging</p>
         </div>
       </div>
 
@@ -36,23 +36,21 @@ export function createChatPanel() {
       </div>
     </header>
 
-    <!-- Pinned Message Strip (Conditional) -->
-    <div class="bg-indigo-50 px-6 py-2 flex items-center text-sm border-b border-indigo-100 text-indigo-900">
-      <svg class="w-4 h-4 mr-2 text-indigo-500" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5.882V19.24a1.76 1.76 0 01-3.417.592l-2.147-6.15M18 13a3 3 0 100-6M5.436 13.683A4.001 4.001 0 017 6h1.832c4.1 0 7.625-1.234 9.168-3v14c-1.543-1.766-5.067-3-9.168-3H7a3.988 3.988 0 01-1.564-.317z" /></svg>
-      <span class="font-medium mr-2">Pinned:</span>
-      <span class="truncate flex-1">Welcome to the new Design Team channel! Please read the guidelines.</span>
-      <button class="text-indigo-400 hover:text-indigo-700 ml-2"><svg class="w-4 h-4" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
-    </div>
-
     <!-- Messages Area -->
     <div id="messages-container" class="flex-1 overflow-y-auto px-6 py-6 scroll-smooth space-y-6">
-       <!-- Dynamic Content -->
+       <div class="flex items-center justify-center h-full text-gray-400">
+         <div class="text-center">
+           <svg class="w-16 h-16 mx-auto mb-4 opacity-50" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
+           </svg>
+           <p class="text-sm">Select a conversation to start chatting</p>
+         </div>
+       </div>
     </div>
 
     <!-- Input Area -->
     <div class="px-6 pb-6 pt-2 bg-white shrink-0">
       <div class="bg-gray-50 border border-gray-200 rounded-xl shadow-sm focus-within:ring-2 focus-within:ring-indigo-500/20 focus-within:border-indigo-500 transition-all">
-        <!-- Input Toolbar -->
         <div class="flex items-center px-4 py-2 border-b border-gray-100 gap-2 overflow-x-auto no-scrollbar">
            <button class="p-1.5 text-gray-400 hover:text-gray-700 rounded hover:bg-gray-200 transition"><svg class="w-4 h-4" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z"/><polyline points="14 2 14 8 20 8"/></svg></button>
            <button class="p-1.5 text-gray-400 hover:text-gray-700 rounded hover:bg-gray-200 transition"><svg class="w-4 h-4" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg></button>
@@ -63,7 +61,7 @@ export function createChatPanel() {
         <div class="p-3">
           <textarea 
             id="message-input"
-            placeholder="Message #Design Team..." 
+            placeholder="Type a message..." 
             class="w-full bg-transparent border-0 focus:ring-0 p-0 text-slate-800 placeholder-slate-400 resize-none h-[48px] max-h-[200px]"
           ></textarea>
         </div>
@@ -82,30 +80,6 @@ export function createChatPanel() {
     </div>
   `;
 
-    // Inject messages
-    const container = panel.querySelector('#messages-container');
-
-    // Date divider
-    const dateDiv = document.createElement('div');
-    dateDiv.className = 'flex items-center justify-center my-6';
-    dateDiv.innerHTML = `<span class="bg-gray-100 text-gray-500 text-xs font-semibold px-3 py-1 rounded-full border border-gray-200">Today, January 21</span>`;
-    container.appendChild(dateDiv);
-
-    // Sample Messages
-    const messages = [
-        { type: 'text', user: 'Sarah Wilson', text: 'Hey everyone! Just uploaded the new design system assets.', time: '09:30 AM', avatar: 'S', isMe: false, status: 'seen' },
-        { type: 'text', user: 'Sarah Wilson', text: 'Let me know what you think about the new color palette.', time: '09:31 AM', avatar: 'S', isMe: false, status: 'seen' },
-        { type: 'me', user: 'Me', text: 'Looks great Sarah! I love the new indigo shades.', time: '09:35 AM', isMe: true, status: 'seen' },
-        { type: 'file', user: 'James Rodriquez', text: 'Here are the updated icons to match.', time: '09:40 AM', fileName: 'icons-set-v2.zip', fileSize: '2.5 MB', avatar: 'J', isMe: false, status: 'seen' },
-        { type: 'text', user: 'Alex Chen', text: 'I will start integrating these into the dashboard today.', time: '10:05 AM', avatar: 'A', isMe: false, status: 'delivered' },
-    ];
-
-    messages.forEach(msg => {
-        container.appendChild(createMessage(msg));
-    });
-
-    
-
     return panel;
 }
 
@@ -114,6 +88,89 @@ export function appendMessageToUI(msg) {
   if (!container) return;
 
   container.appendChild(createMessage(msg));
-  container.scrollTop = container.scrollHeight; // auto scroll xuống cuối
+  container.scrollTop = container.scrollHeight;
+}
+
+export function clearMessages() {
+  const container = document.getElementById('messages-container');
+  if (!container) return;
+  container.innerHTML = '';
+}
+
+export function updateChatHeader(conversation) {
+  const header = document.getElementById('chat-header');
+  if (!header) return;
+
+  const state = getState();
+  const currentUserId = state.currentUser?.user_id;
+  
+  // Lấy tên người chat (với direct chat)
+  let chatName = 'Unknown';
+  let chatType = conversation.type || 'direct';
+  
+  if (chatType === 'direct') {
+    const otherUserId = conversation.participants.find(p => p !== currentUserId);
+    chatName = otherUserId || 'Unknown User';
+  } else {
+    chatName = conversation.name || 'Group Chat';
+  }
+
+  header.innerHTML = `
+    <div class="mr-4 md:hidden">
+      <button id="menu-btn" class="p-2 -ml-2 rounded-md hover:bg-gray-100 text-gray-600">
+         <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+      </button>
+    </div>
+    
+    <div class="flex items-center min-w-0 flex-1">
+      <div class="mr-3 relative">
+         <div class="w-10 h-10 rounded-lg bg-indigo-100 text-indigo-600 flex items-center justify-center font-bold text-lg">${chatName[0].toUpperCase()}</div>
+      </div>
+      <div>
+        <h2 class="font-bold text-slate-800 text-lg leading-tight truncate flex items-center gap-2">
+          ${chatName}
+          <span class="px-2 py-0.5 rounded-full bg-slate-100 text-slate-500 text-xs font-normal border border-slate-200">${chatType === 'direct' ? 'Direct' : 'Group'}</span>
+        </h2>
+        <p class="text-xs text-slate-500 truncate">${chatType === 'direct' ? 'Direct message' : conversation.participants?.length + ' members'}</p>
+      </div>
+    </div>
+
+    <div class="flex items-center space-x-1 ml-4 border-l pl-4 border-gray-200 h-8">
+      <button id="info-btn" class="p-2 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-full transition-colors hidden xl:block" title="Details">
+        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
+      </button>
+    </div>
+  `;
+}
+
+export function loadConversationMessages(conversationId) {
+  const state = getState();
+  const messages = state.messages[conversationId] || [];
+  const currentUserId = state.currentUser?.user_id;
+  
+  clearMessages();
+  
+  // Add date divider
+  const container = document.getElementById('messages-container');
+  const dateDiv = document.createElement('div');
+  dateDiv.className = 'flex items-center justify-center my-6';
+  const today = new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric' });
+  dateDiv.innerHTML = `<span class="bg-gray-100 text-gray-500 text-xs font-semibold px-3 py-1 rounded-full border border-gray-200">Today, ${today}</span>`;
+  container.appendChild(dateDiv);
+  
+  // Add messages
+  messages.forEach(msg => {
+    appendMessageToUI({
+      type: "text",
+      user: msg.sender_id === currentUserId ? "Me" : msg.sender_id,
+      text: msg.text,
+      time: new Date(msg.created_at).toLocaleTimeString([], {
+        hour: "2-digit",
+        minute: "2-digit",
+      }),
+      isMe: msg.sender_id === currentUserId,
+      status: msg.status || "sent",
+    });
+  });
 }
 

@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Test WebSocket</title>
+</head>
+<body>
+  <h1>Chat Test</h1>
+  <div>
+    <input id="userId" placeholder="User ID" value="user_123">
+    <button onclick="login()">Login</button>
+  </div>
+  <div>
+    <input id="convId" placeholder="Conversation ID" value="conv_1">
+    <button onclick="joinRoom()">Join Room</button>
+    <button onclick="loadMessages()">Load Messages</button>
+  </div>
+  <div>
+    <input id="messageText" placeholder="Type message...">
+    <button onclick="sendMessage()">Send</button>
+  </div>
+  <div id="messages" style="border:1px solid #ccc; padding:10px; margin-top:10px; height:300px; overflow-y:auto;"></div>
+  <button onclick="startDirectChat()">Start Chat với user_456</button>
+  <button onclick="getConversations()">Xem danh sách chat</button>
+
+  <script>
+    let ws = null;
+
+    function connectWS() {
+      ws = new WebSocket('ws://127.0.0.1:8000/ws');
+      
+      ws.onopen = () => {
+        console.log('✅ Connected');
+        document.getElementById('messages').innerHTML += '<div style="color:green">✅ Connected to server</div>';
+      };
+      
+      ws.onmessage = (e) => {
+        const msg = JSON.parse(e.data);
+        console.log('📨 Received:', msg);
+        document.getElementById('messages').innerHTML += `<div>${JSON.stringify(msg)}</div>`;
+      };
+      
+      ws.onclose = () => {
+        console.log('❌ Connection closed');
+        document.getElementById('messages').innerHTML += '<div style="color:red">❌ Connection closed. Reconnecting...</div>';
+        setTimeout(connectWS, 2000); // Reconnect sau 2s
+      };
+      
+      ws.onerror = (e) => {
+        console.log('⚠️ WebSocket error:', e);
+      };
+    }
+
+    // Kết nối ngay khi load trang
+    connectWS();
+    
+    function send(type, data) {
+      if (!ws || ws.readyState !== WebSocket.OPEN) {
+        console.error('WebSocket is not connected!');
+        alert('Chưa kết nối với server! Vui lòng đợi...');
+        return;
+      }
+      ws.send(JSON.stringify({ type, data, ts: Date.now() }));
+    }
+    
+    function login() {
+      const userId = document.getElementById('userId').value;
+      send('auth', { user_id: userId });
+    }
+    
+    function joinRoom() {
+      const convId = document.getElementById('convId').value;
+      send('join', { conversation_id: convId });
+    }
+    
+    function loadMessages() {
+      const convId = document.getElementById('convId').value;
+      send('load_messages', { conversation_id: convId });
+    }
+    
+    function sendMessage() {
+      const convId = document.getElementById('convId').value;
+      const text = document.getElementById('messageText').value;
+      send('send_message', {
+        conversation_id: convId,
+        client_msg_id: 'msg_' + Date.now(),
+        text: text,
+        msg_type: 'text'
+      });
+      document.getElementById('messageText').value = '';
+    }
+
+    function startDirectChat() {
+      send('get_direct_conversation', { other_user_id: 'user_456' });
+    }
+
+    function getConversations() {
+      send('get_conversations', {});
+    }
+  </script>
+</body>
+</html>
