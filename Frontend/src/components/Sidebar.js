@@ -1,6 +1,11 @@
 import { getState, subscribe, setCurrentConversation, addConversation } from '../state.js';
 import { updateChatHeader } from './ChatPanel.js';
-import { sendEvent, onWSEvent } from '../ws.js'; // ← SỬA: Thêm onWSEvent
+import { sendEvent } from '../ws.js';
+import { showCreateGroupModal } from './CreateGroupModal.js';
+
+let cachedFriends = [];
+let lastSearchQuery = '';
+let friendsLoaded = false;
 
 export function createSidebar() {
     const sidebar = document.createElement('aside');
@@ -13,13 +18,16 @@ export function createSidebar() {
       <button class="ml-auto w-9 h-9 rounded-lg bg-indigo-600 hover:bg-indigo-700 flex items-center justify-center cursor-pointer transition-all shadow-lg shadow-indigo-500/20 hover:shadow-indigo-500/40" id="new-chat-btn" title="Start new chat">
         <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
       </button>
+      <button class="ml-2 w-9 h-9 rounded-lg bg-slate-700 hover:bg-red-600 flex items-center justify-center cursor-pointer transition-all" id="logout-btn" title="Đăng xuất">
+        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+      </button>
     </div>
 
     <!-- Search -->
     <div class="p-3 shrink-0">
       <div class="relative" id="search-container">
         <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="absolute left-3 top-2.5 text-slate-500"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
-        <input id="search-input" type="text" placeholder="Tìm kiếm hoặc kết bạn..." class="w-full bg-slate-800/50 text-sm text-slate-200 placeholder-slate-500 rounded-lg pl-10 pr-3 py-2 border border-slate-700/50 focus:outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/30 focus:bg-slate-800 transition-all" />
+        <input id="search-input" type="text" placeholder="Tìm trong bạn bè hoặc đã chat..." class="w-full bg-slate-800/50 text-sm text-slate-200 placeholder-slate-500 rounded-lg pl-10 pr-3 py-2 border border-slate-700/50 focus:outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/30 focus:bg-slate-800 transition-all" />
       </div>
     </div>
     
@@ -140,12 +148,25 @@ export function createSidebar() {
       });
     }
     
+    // Xử lý nút Logout
+    const logoutBtn = sidebar.querySelector('#logout-btn');
+    if (logoutBtn) {
+      logoutBtn.addEventListener('click', () => {
+        if (confirm('Bạn có chắc muốn đăng xuất?')) {
+          import('../main.js').then(({ logout }) => {
+            logout();
+          });
+        }
+      });
+    }
+    
     // Xử lý tìm kiếm
     const searchInput = sidebar.querySelector('#search-input');
     if (searchInput) {
         let searchTimeout;
         searchInput.addEventListener('input', (e) => {
             const query = e.target.value.trim();
+            lastSearchQuery = query;
             
             // Debounce search
             clearTimeout(searchTimeout);
@@ -156,15 +177,30 @@ export function createSidebar() {
             
             searchTimeout = setTimeout(() => {
                 console.log("[Sidebar] Searching for:", query);
-                sendEvent('search_users', { query }, 'r_search_' + Date.now());
-            }, 300);
+                const results = filterSearchResults(query);
+                if (results.length === 0) {
+                    hideSearchResults();
+                    return;
+                }
+                showSearchResults(sidebar, results);
+                
+                // Ensure friends list is loaded for search scope
+                if (!friendsLoaded) {
+                    sendEvent('get_friends', {}, 'r_search_friends_' + Date.now());
+                }
+            }, 200);
         });
     }
     
     // Lắng nghe kết quả tìm kiếm từ main.js
     document.addEventListener('searchResults', (e) => {
-        console.log("[Sidebar] Search results received:", e.detail.users);
-        showSearchResults(sidebar, e.detail.users);
+        if (lastSearchQuery.length < 2) return;
+        const results = filterSearchResults(lastSearchQuery);
+        if (results.length === 0) {
+            hideSearchResults();
+            return;
+        }
+        showSearchResults(sidebar, results);
     });
     
     // Xử lý tabs
@@ -382,23 +418,27 @@ function showNewChatModal() {
                 </button>
             </div>
             
-            <p class=\"text-sm text-slate-400 mb-4\">Nhập User ID của người bạn muốn kết nối</p>
+            <p class=\"text-sm text-slate-400 mb-4\">Nhập User ID hoặc username của người bạn muốn kết nối</p>
             
             <div class=\"mb-5\">
-                <label class=\"block text-sm font-medium text-slate-300 mb-2\">User ID</label>
-                <input type=\"text\" id=\"modal-user-id\" placeholder=\"vd: hungdeptrai, user_123\" class=\"w-full bg-slate-900/50 text-white placeholder-slate-500 rounded-lg px-4 py-3 border border-slate-700 focus:outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/30 transition-all\" autofocus />
+                <label class=\"block text-sm font-medium text-slate-300 mb-2\">User ID / Username</label>
+                <input type=\"text\" id=\"modal-user-id\" placeholder=\"vd: hungdeptrai hoặc email\" class=\"w-full bg-slate-900/50 text-white placeholder-slate-500 rounded-lg px-4 py-3 border border-slate-700 focus:outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/30 transition-all\" autofocus />
             </div>
             
-            <div class=\"grid grid-cols-2 gap-3\">
-                <button class=\"modal-friend-btn bg-gradient-to-r from-amber-600 to-orange-600 hover:from-amber-700 hover:to-orange-700 text-white font-semibold py-2.5 px-4 rounded-lg transition-all shadow-lg shadow-amber-500/30 hover:shadow-amber-500/50\">
-                    <svg xmlns=\"http://www.w3.org/2000/svg\" width=\"16\" height=\"16\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" class=\"inline mr-1\"><path d=\"M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2\"/><circle cx=\"8.5\" cy=\"7\" r=\"4\"/><line x1=\"20\" y1=\"8\" x2=\"20\" y2=\"14\"/><line x1=\"23\" y1=\"11\" x2=\"17\" y2=\"11\"/></svg>
+            <div class="grid grid-cols-2 gap-3">
+                <button class="modal-group-btn bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-700 hover:to-pink-700 text-white font-semibold py-2.5 px-4 rounded-lg transition-all shadow-lg shadow-purple-500/30 hover:shadow-purple-500/50">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="inline mr-1"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+                    Tạo nhóm
+                </button>
+                <button class="modal-friend-btn bg-gradient-to-r from-amber-600 to-orange-600 hover:from-amber-700 hover:to-orange-700 text-white font-semibold py-2.5 px-4 rounded-lg transition-all shadow-lg shadow-amber-500/30 hover:shadow-amber-500/50">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="inline mr-1"><path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="8.5" cy="7" r="4"/><line x1="20" y1="8" x2="20" y2="14"/><line x1="23" y1="11" x2="17" y2="11"/></svg>
                     Kết bạn
                 </button>
-                <button class=\"modal-submit bg-gradient-to-r from-indigo-600 to-indigo-700 hover:from-indigo-700 hover:to-indigo-800 text-white font-semibold py-2.5 px-4 rounded-lg transition-all shadow-lg shadow-indigo-500/30 hover:shadow-indigo-500/50\">
-                    <svg xmlns=\"http://www.w3.org/2000/svg\" width=\"16\" height=\"16\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" class=\"inline mr-1\"><path d=\"M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z\"/></svg>
-                    Nhắn tin
-                </button>
             </div>
+            <button class="modal-submit w-full mt-2 bg-gradient-to-r from-indigo-600 to-indigo-700 hover:from-indigo-700 hover:to-indigo-800 text-white font-semibold py-2.5 px-4 rounded-lg transition-all shadow-lg shadow-indigo-500/30 hover:shadow-indigo-500/50">
+                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="inline mr-1"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+                Nhắn tin trực tiếp
+            </button>
             <button class=\"modal-cancel w-full mt-2 bg-slate-700/30 hover:bg-slate-700/50 text-slate-400 hover:text-white font-medium py-2 px-4 rounded-lg transition-all text-sm\">
                 Hủy
             </button>
@@ -433,6 +473,13 @@ function showNewChatModal() {
         } else {
             showNotification('Vui lòng nhập User ID!', 'error');
         }
+    });
+    
+    // Group chat handler
+    const groupBtn = modal.querySelector('.modal-group-btn');
+    groupBtn.addEventListener('click', () => {
+        modal.remove();
+        showCreateGroupModal();
     });
     
     // Chat handler
@@ -488,6 +535,48 @@ export function showNotification(message, type = 'info') {
     }, 3000);
 }
 
+function getSearchableUsers(state) {
+    const users = new Map();
+    const currentUserId = state.currentUser?.user_id;
+
+    (cachedFriends || []).forEach((friend) => {
+        const userId = friend?.user_id || friend;
+        if (!userId || userId === currentUserId) return;
+        users.set(userId, {
+            user_id: userId,
+            username: friend?.username || userId,
+            avatar: friend?.avatar,
+            is_friend: true
+        });
+    });
+
+    (state.conversations || []).forEach((conv) => {
+        if (conv.type !== 'direct') return;
+        const otherUserId = conv.participants?.find((p) => p !== currentUserId);
+        if (!otherUserId || otherUserId === currentUserId) return;
+        if (!users.has(otherUserId)) {
+            users.set(otherUserId, {
+                user_id: otherUserId,
+                username: otherUserId,
+                avatar: null,
+                is_friend: false
+            });
+        }
+    });
+
+    return Array.from(users.values());
+}
+
+function filterSearchResults(query) {
+    const state = getState();
+    const q = query.toLowerCase();
+    return getSearchableUsers(state).filter((user) => {
+        const userId = (user.user_id || '').toLowerCase();
+        const username = (user.username || '').toLowerCase();
+        return userId.includes(q) || username.includes(q);
+    });
+}
+
 function showSearchResults(sidebar, users) {
     // Xóa kết quả cũ nếu có
     let resultsPanel = sidebar.querySelector('#search-results-panel');
@@ -519,13 +608,20 @@ function showSearchResults(sidebar, users) {
     users.forEach(user => {
         const userItem = document.createElement('div');
         userItem.className = 'group flex items-center px-3 py-2.5 rounded-lg hover:bg-slate-700/50 transition-all duration-200';
+        const isFriend = user.is_friend === true;
+        const displayName = user.username || user.user_id || 'Unknown';
+        const displayInitial = displayName[0] ? displayName[0].toUpperCase() : '?';
+        const avatar = user.avatar;
         
         userItem.innerHTML = `
-            <div class="w-10 h-10 rounded-full bg-gradient-to-br from-slate-600 to-slate-700 flex items-center justify-center text-white text-sm font-bold mr-3 group-hover:from-indigo-600 group-hover:to-purple-600 transition-all">
-                ${user.username[0].toUpperCase()}
-            </div>
+            ${avatar
+                ? `<img src="${avatar}" alt="${displayName}" class="w-10 h-10 rounded-full mr-3 object-cover" />`
+                : `<div class="w-10 h-10 rounded-full bg-gradient-to-br from-slate-600 to-slate-700 flex items-center justify-center text-white text-sm font-bold mr-3 group-hover:from-indigo-600 group-hover:to-purple-600 transition-all">
+                    ${displayInitial}
+                </div>`
+            }
             <div class="flex-1 min-w-0">
-                <div class="text-sm font-semibold text-slate-200 group-hover:text-white transition-colors">${user.username}</div>
+                <div class="text-sm font-semibold text-slate-200 group-hover:text-white transition-colors">${displayName}</div>
                 <div class="text-xs text-slate-500">@${user.user_id}</div>
             </div>
             <div class="flex space-x-2">
@@ -542,19 +638,29 @@ function showSearchResults(sidebar, users) {
         const addFriendBtn = userItem.querySelector('.add-friend-btn');
         const chatBtn = userItem.querySelector('.chat-btn');
         
-        addFriendBtn.addEventListener('click', (e) => {
-            e.stopPropagation();
-            console.log("[Sidebar] Sending friend request to:", user.user_id);
-            sendEvent('send_friend_request', { to_user_id: user.user_id });
-            
-            // Show success feedback
+        if (isFriend) {
             addFriendBtn.innerHTML = `
                 <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+                <span class="text-xs font-medium hidden sm:inline">Bạn bè</span>
             `;
-            addFriendBtn.classList.add('bg-green-600', 'hover:bg-green-700', 'shadow-green-500/20');
-            addFriendBtn.classList.remove('bg-indigo-600', 'hover:bg-indigo-700', 'shadow-indigo-500/20');
             addFriendBtn.disabled = true;
-        });
+            addFriendBtn.classList.add('opacity-70', 'cursor-not-allowed', 'from-slate-600', 'to-slate-700');
+            addFriendBtn.classList.remove('from-indigo-600', 'to-indigo-700', 'hover:from-indigo-700', 'hover:to-indigo-800');
+        } else {
+            addFriendBtn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                console.log("[Sidebar] Sending friend request to:", user.user_id);
+                sendEvent('send_friend_request', { to_user_id: user.user_id });
+                
+                // Show success feedback
+                addFriendBtn.innerHTML = `
+                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+                `;
+                addFriendBtn.classList.add('bg-green-600', 'hover:bg-green-700', 'shadow-green-500/20');
+                addFriendBtn.classList.remove('bg-indigo-600', 'hover:bg-indigo-700', 'shadow-indigo-500/20');
+                addFriendBtn.disabled = true;
+            });
+        }
         
         chatBtn.addEventListener('click', (e) => {
             e.stopPropagation();
@@ -600,8 +706,20 @@ function loadFriendsData(sidebar) {
 document.addEventListener('friendsList', (e) => {
     const sidebar = document.querySelector('aside');
     if (sidebar) {
-        console.log("[Sidebar] Friends received:", e.detail.friends);
-        renderFriendsList(sidebar, e.detail.friends);
+        cachedFriends = Array.isArray(e.detail.friends) ? e.detail.friends : [];
+        friendsLoaded = true;
+        console.log("[Sidebar] Friends received:", cachedFriends);
+        // Make sure we pass sidebar element to render in the correct place
+        renderFriendsList(sidebar, cachedFriends);
+
+        if (lastSearchQuery.length >= 2) {
+            const results = filterSearchResults(lastSearchQuery);
+            if (results.length === 0) {
+                hideSearchResults();
+            } else {
+                showSearchResults(sidebar, results);
+            }
+        }
     }
 });
 
@@ -614,10 +732,20 @@ document.addEventListener('friendRequests', (e) => {
 });
 
 function renderFriendsList(sidebar, friends) {
+    console.log("[renderFriendsList] Called with:", friends);
+    console.log("[renderFriendsList] Sidebar element:", sidebar);
+    
+    // Make sure we query from sidebar, not from document (to avoid modal conflicts)
     const friendsList = sidebar.querySelector('#friends-list');
     const friendsCount = sidebar.querySelector('#friends-count');
     
-    if (!friendsList) return;
+    console.log("[renderFriendsList] friendsList element:", friendsList);
+    console.log("[renderFriendsList] friendsCount element:", friendsCount);
+    
+    if (!friendsList) {
+        console.error("[renderFriendsList] ❌ #friends-list not found in sidebar!");
+        return;
+    }
     
     if (friendsCount) {
         friendsCount.textContent = friends.length;
@@ -634,23 +762,38 @@ function renderFriendsList(sidebar, friends) {
         return;
     }
     
+    console.log("[renderFriendsList] Rendering", friends.length, "friends");
     friendsList.innerHTML = '';
-    friends.forEach(friendId => {
+    friends.forEach(friend => {
+        console.log("[renderFriendsList] Processing friend:", friend);
         const item = document.createElement('div');
         item.className = 'group flex items-center px-2 py-2.5 rounded-lg hover:bg-slate-800/50 transition-all cursor-pointer';
         
+        const friendId = friend.user_id || friend;
+        const friendName = friend.username || friendId;
+        const isOnline = friend.online || false;
+        const avatar = friend.avatar;
+        
+        console.log("[renderFriendsList] Friend details:", {friendId, friendName, isOnline, avatar});
+        
         item.innerHTML = `
             <div class="relative">
-                <div class="w-10 h-10 rounded-full bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center text-white text-sm font-bold mr-3">
-                    ${friendId[0].toUpperCase()}
-                </div>
-                <div class="absolute -bottom-0.5 -right-0.5 w-3 h-3 bg-green-500 rounded-full border-2 border-slate-900"></div>
+                ${avatar 
+                    ? `<img src="${avatar}" alt="${friendName}" class="w-10 h-10 rounded-full mr-3 object-cover" />`
+                    : `<div class="w-10 h-10 rounded-full bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center text-white text-sm font-bold mr-3">
+                        ${friendName[0].toUpperCase()}
+                    </div>`
+                }
+                ${isOnline 
+                    ? '<div class="absolute -bottom-0.5 -right-0.5 w-3 h-3 bg-green-500 rounded-full border-2 border-slate-900"></div>'
+                    : '<div class="absolute -bottom-0.5 -right-0.5 w-3 h-3 bg-slate-500 rounded-full border-2 border-slate-900"></div>'
+                }
             </div>
             <div class="flex-1 min-w-0">
-                <div class="text-sm font-medium text-slate-200">${friendId}</div>
-                <div class="text-xs text-green-400 flex items-center">
-                    <div class="w-1.5 h-1.5 bg-green-500 rounded-full mr-1.5 animate-pulse"></div>
-                    Online
+                <div class="text-sm font-medium text-slate-200">${friendName}</div>
+                <div class="text-xs ${isOnline ? 'text-green-400' : 'text-slate-500'} flex items-center">
+                    <div class="w-1.5 h-1.5 ${isOnline ? 'bg-green-500 animate-pulse' : 'bg-slate-500'} rounded-full mr-1.5"></div>
+                    ${isOnline ? 'Online' : 'Offline'}
                 </div>
             </div>
             <button class="message-btn opacity-0 group-hover:opacity-100 transition-opacity p-2 hover:bg-indigo-600 rounded-lg text-slate-400 hover:text-white" data-user-id="${friendId}" title="Nhắn tin">
@@ -668,8 +811,10 @@ function renderFriendsList(sidebar, friends) {
             if (chatsTab) chatsTab.click();
         });
         
+        console.log("[renderFriendsList] Appending friend item to list");
         friendsList.appendChild(item);
     });
+    console.log("[renderFriendsList] ✅ Done rendering, total children:", friendsList.children.length);
 }
 
 function renderFriendRequests(sidebar, received, sent) {
@@ -789,9 +934,20 @@ function createFriendRequestItem(fromUserId) {
     
     rejectBtn.addEventListener('click', () => {
         console.log("[Sidebar] Rejecting friend request from:", fromUserId);
-        // TODO: Implement reject
-        item.classList.add('opacity-50');
-        setTimeout(() => item.remove(), 300);
+        sendEvent('reject_friend_request', { from_user_id: fromUserId });
+        
+        // Show rejection animation
+        item.classList.add('animate-pulse');
+        item.innerHTML = `
+            <div class="flex items-center justify-center py-2 text-slate-400">
+                <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="mr-2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                <span class="text-sm font-medium">Đã từ chối!</span>
+            </div>
+        `;
+        
+        setTimeout(() => {
+            item.remove();
+        }, 1500);
     });
     
     return item;

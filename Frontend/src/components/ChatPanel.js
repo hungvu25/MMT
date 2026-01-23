@@ -51,11 +51,19 @@ export function createChatPanel() {
     <!-- Input Area -->
     <div class="px-6 pb-6 pt-2 bg-white shrink-0">
       <div class="bg-gray-50 border border-gray-200 rounded-xl shadow-sm focus-within:ring-2 focus-within:ring-indigo-500/20 focus-within:border-indigo-500 transition-all">
+        <!-- Hidden File Input -->
+        <input type="file" id="file-input" class="hidden" accept="image/*,video/*,.pdf,.doc,.docx,.txt" multiple />
+        
         <div class="flex items-center px-4 py-2 border-b border-gray-100 gap-2 overflow-x-auto no-scrollbar">
-           <button class="p-1.5 text-gray-400 hover:text-gray-700 rounded hover:bg-gray-200 transition"><svg class="w-4 h-4" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z"/><polyline points="14 2 14 8 20 8"/></svg></button>
-           <button class="p-1.5 text-gray-400 hover:text-gray-700 rounded hover:bg-gray-200 transition"><svg class="w-4 h-4" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg></button>
+           <button id="file-upload-btn" class="p-1.5 text-gray-400 hover:text-indigo-600 rounded hover:bg-indigo-50 transition" title="Upload file"><svg class="w-4 h-4" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z"/><polyline points="14 2 14 8 20 8"/></svg></button>
+           <button id="image-upload-btn" class="p-1.5 text-gray-400 hover:text-indigo-600 rounded hover:bg-indigo-50 transition" title="Upload image"><svg class="w-4 h-4" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg></button>
            <div class="h-4 w-px bg-gray-300 mx-1"></div>
            <button class="p-1.5 text-gray-400 hover:text-gray-700 rounded hover:bg-gray-200 transition"><svg class="w-4 h-4" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/></svg></button>
+        </div>
+        
+        <!-- File Preview Area -->
+        <div id="file-preview-container" class="hidden px-4 py-2 border-b border-gray-100">
+          <div id="file-previews" class="flex gap-2 overflow-x-auto"></div>
         </div>
         
         <div class="p-3">
@@ -95,6 +103,118 @@ export function clearMessages() {
   const container = document.getElementById('messages-container');
   if (!container) return;
   container.innerHTML = '';
+}
+
+// File upload state
+let selectedFiles = [];
+
+export function initFileUpload() {
+  const fileInput = document.getElementById('file-input');
+  const fileUploadBtn = document.getElementById('file-upload-btn');
+  const imageUploadBtn = document.getElementById('image-upload-btn');
+  const previewContainer = document.getElementById('file-preview-container');
+  const previewsDiv = document.getElementById('file-previews');
+
+  // Handle file button click
+  fileUploadBtn?.addEventListener('click', () => {
+    fileInput.accept = '*/*';
+    fileInput.click();
+  });
+
+  // Handle image button click
+  imageUploadBtn?.addEventListener('click', () => {
+    fileInput.accept = 'image/*';
+    fileInput.click();
+  });
+
+  // Handle file selection
+  fileInput?.addEventListener('change', (e) => {
+    const files = Array.from(e.target.files);
+    if (files.length === 0) return;
+
+    selectedFiles = files;
+    displayFilePreviews(files, previewContainer, previewsDiv);
+  });
+}
+
+function displayFilePreviews(files, container, previewsDiv) {
+  if (!files || files.length === 0) {
+    container.classList.add('hidden');
+    return;
+  }
+
+  container.classList.remove('hidden');
+  previewsDiv.innerHTML = '';
+
+  files.forEach((file, index) => {
+    const preview = document.createElement('div');
+    preview.className = 'relative group flex-shrink-0';
+    
+    const isImage = file.type.startsWith('image/');
+    
+    if (isImage) {
+      // Image preview
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        preview.innerHTML = `
+          <div class="relative w-20 h-20 rounded-lg overflow-hidden border-2 border-indigo-200">
+            <img src="${e.target.result}" class="w-full h-full object-cover" />
+            <button class="absolute top-1 right-1 w-5 h-5 bg-red-500 hover:bg-red-600 rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity" onclick="window.removeFilePreview(${index})">
+              <svg class="w-3 h-3 text-white" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+            </button>
+          </div>
+          <div class="text-xs text-center mt-1 text-gray-600 truncate w-20">${file.name}</div>
+        `;
+      };
+      reader.readAsDataURL(file);
+    } else {
+      // File preview
+      const fileSize = (file.size / 1024).toFixed(1) + ' KB';
+      preview.innerHTML = `
+        <div class="relative w-20 h-20 rounded-lg border-2 border-gray-200 bg-gray-50 flex flex-col items-center justify-center p-2">
+          <svg class="w-8 h-8 text-gray-400 mb-1" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z"/><polyline points="14 2 14 8 20 8"/></svg>
+          <span class="text-[10px] text-gray-500">${fileSize}</span>
+          <button class="absolute top-1 right-1 w-5 h-5 bg-red-500 hover:bg-red-600 rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity" onclick="window.removeFilePreview(${index})">
+            <svg class="w-3 h-3 text-white" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+          </button>
+        </div>
+        <div class="text-xs text-center mt-1 text-gray-600 truncate w-20" title="${file.name}">${file.name}</div>
+      `;
+    }
+    
+    previewsDiv.appendChild(preview);
+  });
+}
+
+// Global function to remove file preview
+window.removeFilePreview = (index) => {
+  selectedFiles.splice(index, 1);
+  const previewContainer = document.getElementById('file-preview-container');
+  const previewsDiv = document.getElementById('file-previews');
+  const fileInput = document.getElementById('file-input');
+  
+  if (selectedFiles.length === 0) {
+    previewContainer.classList.add('hidden');
+    previewsDiv.innerHTML = '';
+    fileInput.value = '';
+  } else {
+    displayFilePreviews(selectedFiles, previewContainer, previewsDiv);
+  }
+};
+
+export function getSelectedFiles() {
+  return selectedFiles;
+}
+
+export function clearSelectedFiles() {
+  selectedFiles = [];
+  const fileInput = document.getElementById('file-input');
+  const previewContainer = document.getElementById('file-preview-container');
+  const previewsDiv = document.getElementById('file-previews');
+  
+  if (fileInput) fileInput.value = '';
+  if (previewContainer) previewContainer.classList.add('hidden');
+  if (previewsDiv) previewsDiv.innerHTML = '';
 }
 
 export function updateChatHeader(conversation) {
@@ -160,8 +280,8 @@ export function loadConversationMessages(conversationId) {
   
   // Add messages
   messages.forEach(msg => {
-    appendMessageToUI({
-      type: "text",
+    const messageData = {
+      type: msg.msg_type || "text",
       user: msg.sender_id === currentUserId ? "Me" : msg.sender_id,
       text: msg.text,
       time: new Date(msg.created_at).toLocaleTimeString([], {
@@ -170,7 +290,16 @@ export function loadConversationMessages(conversationId) {
       }),
       isMe: msg.sender_id === currentUserId,
       status: msg.status || "sent",
-    });
+    };
+    
+    // Add file metadata if present
+    if (msg.file_url) {
+      messageData.fileUrl = msg.file_url;
+      messageData.fileName = msg.file_name;
+      messageData.fileSize = msg.file_size;
+    }
+    
+    appendMessageToUI(messageData);
   });
 }
 

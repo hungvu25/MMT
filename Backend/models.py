@@ -3,295 +3,72 @@ from db import db
 from datetime import datetime
 from bson import ObjectId
 from bson.errors import InvalidId
+from auth import get_password_hash, verify_password
 
 # Collection references
-messages_collection = db['messages']
 users_collection = db['users']
 conversations_collection = db['conversations']
-friends_collection = db['friends']
-
-class MessageModel:
-    @staticmethod
-    def insert_message(conversation_id, sender_id, text, msg_type="text"):
-        """Lưu tin nhắn vào database"""
-        message = {
-            "conversation_id": conversation_id,
-            "sender_id": sender_id,
-            "text": text,
-            "msg_type": msg_type,
-            "created_at": datetime.now(),
-            "status": "sent",
-            "receipts": {}
-        }
-        result = messages_collection.insert_one(message)
-        message['_id'] = str(result.inserted_id)
-        message['created_at'] = int(message['created_at'].timestamp() * 1000)
-        return message
-    
-    @staticmethod
-    def get_messages(conversation_id, limit=50):
-        """Lấy tin nhắn từ database"""
-        messages = messages_collection.find(
-            {"conversation_id": conversation_id}
-        ).sort("created_at", -1).limit(limit)
-        
-        result = []
-        for msg in messages:
-            msg['_id'] = str(msg['_id'])
-            msg['created_at'] = int(msg['created_at'].timestamp() * 1000)
-            result.append(msg)
-        
-        return list(reversed(result))
-    
-    @staticmethod
-    def update_receipt(message_id, user_id, status):
-        """Cập nhật trạng thái đã đọc"""
-        messages_collection.update_one(
-            {"_id": ObjectId(message_id)},
-            {"$set": {f"receipts.{user_id}": {
-                "status": status,
-                "updated_at": datetime.now()
-            }}}
-        )
-
-class ConversationModel:
-    @staticmethod
-    def create_or_get_direct_conversation(user_id_1, user_id_2, initiator_id=None):
-        """Tạo hoặc lấy conversation giữa 2 người"""
-        # Tìm conversation đã tồn tại
-        existing = conversations_collection.find_one({
-            "type": "direct",
-            "participants": {"$all": [user_id_1, user_id_2]}
-        })
-        
-        if existing:
-            existing['_id'] = str(existing['_id'])
-            if existing.get('created_at'):
-                existing['created_at'] = int(existing['created_at'].timestamp() * 1000)
-            if existing.get('last_message') and existing['last_message'].get('created_at'):
-                existing['last_message']['created_at'] = int(existing['last_message']['created_at'].timestamp() * 1000)
-            return existing
-        
-        # Kiểm tra có phải bạn bè không
-        are_friends = FriendModel.are_friends(user_id_1, user_id_2)
-        
-        # Tạo mới nếu chưa có
-        now = datetime.now()
-        conv = {
-            "type": "direct",
-            "participants": sorted([user_id_1, user_id_2]),
-            "created_at": now,
-            "last_message": None,
-            "status": "accepted" if are_friends else "pending",
-            "initiator": initiator_id  # Người khởi tạo cuộc trò chuyện
-        }
-        result = conversations_collection.insert_one(conv)
-        conv['_id'] = str(result.inserted_id)
-        conv['created_at'] = int(now.timestamp() * 1000)
-        return conv
-    
-    @staticmethod
-    def get_user_conversations(user_id):
-        """Lấy tất cả conversations của 1 user"""
-        convs = conversations_collection.find({
-            "participants": user_id
-        }).sort("last_message.created_at", -1)
-        
-        result = []
-        for c in convs:
-            c['_id'] = str(c['_id'])
-            if c.get('created_at'):
-                c['created_at'] = int(c['created_at'].timestamp() * 1000)
-            if c.get('last_message') and c['last_message'].get('created_at'):
-                c['last_message']['created_at'] = int(c['last_message']['created_at'].timestamp() * 1000)
-            
-            # Thêm status nếu chưa có (cho các conversation cũ)
-            if 'status' not in c:
-                c['status'] = 'accepted'
-            
-            result.append(c)
-        return result
-    
-    @staticmethod
-    def accept_conversation(conversation_id):
-        """Chấp nhận cuộc trò chuyện từ người lạ"""
-        try:
-            conv_obj_id = ObjectId(conversation_id)
-        except (InvalidId, TypeError):
-            conversations_collection.update_one(
-                {"_id": conversation_id},
-                {"$set": {"status": "accepted"}}
-            )
-            return
-        
-        conversations_collection.update_one(
-            {"_id": conv_obj_id},
-            {"$set": {"status": "accepted"}}
-        )
-    
-    @staticmethod
-    def update_last_message(conversation_id, message):
-        """Cập nhật tin nhắn cuối"""
-        # ← SỬA: Validate ObjectId trước
-        try:
-            conv_obj_id = ObjectId(conversation_id)
-        except (InvalidId, TypeError):
-            # Nếu không phải ObjectId hợp lệ, tìm bằng string
-            conversations_collection.update_one(
-                {"_id": conversation_id},  # Tìm bằng string
-                {"$set": {
-                    "last_message": {
-                        "text": message['text'],
-                        "sender_id": message['sender_id'],
-                        "created_at": datetime.fromtimestamp(message['created_at'] / 1000)
-                    }
-                }}
-            )
-            return
-        
-        # Nếu là ObjectId hợp lệ
-        conversations_collection.update_one(
-            {"_id": conv_obj_id},
-            {"$set": {
-                "last_message": {
-                    "text": message['text'],
-                    "sender_id": message['sender_id'],
-                    "created_at": datetime.fromtimestamp(message['created_at'] / 1000)
-                }
-            }}
-        )
-
-class FriendModel:
-    @staticmethod
-    def send_friend_request(from_user_id, to_user_id):
-        """Gửi lời mời kết bạn"""
-        # Kiểm tra user có tồn tại không
-        to_user = UserModel.get_user(to_user_id)
-        if not to_user:
-            return {"status": "error", "message": "User không tồn tại"}
-        
-        # Kiểm tra không thể gửi cho chính mình
-        if from_user_id == to_user_id:
-            return {"status": "error", "message": "Không thể kết bạn với chính mình"}
-        
-        # Kiểm tra đã gửi chưa
-        existing = friends_collection.find_one({
-            "$or": [
-                {"from_user": from_user_id, "to_user": to_user_id},
-                {"from_user": to_user_id, "to_user": from_user_id}
-            ]
-        })
-        
-        if existing:
-            if existing['status'] == 'accepted':
-                return {"status": "error", "message": "Đã là bạn bè"}
-            elif existing['status'] == 'pending':
-                return {"status": "error", "message": "Lời mời đang chờ xử lý"}
-        
-        # Tạo friend request
-        request = {
-            "from_user": from_user_id,
-            "to_user": to_user_id,
-            "status": "pending",
-            "created_at": datetime.now()
-        }
-        result = friends_collection.insert_one(request)
-        request['_id'] = str(result.inserted_id)
-        request['created_at'] = int(request['created_at'].timestamp() * 1000)
-        return {"status": "sent", "friendship": request}
-    
-    @staticmethod
-    def accept_friend_request(from_user_id, to_user_id):
-        """Chấp nhận lời mời kết bạn"""
-        result = friends_collection.update_one(
-            {"from_user": from_user_id, "to_user": to_user_id, "status": "pending"},
-            {"$set": {"status": "accepted", "accepted_at": datetime.now()}}
-        )
-        return result.modified_count > 0
-    
-    @staticmethod
-    def are_friends(user_id_1, user_id_2):
-        """Kiểm tra 2 người có phải bạn bè không"""
-        friendship = friends_collection.find_one({
-            "$or": [
-                {"from_user": user_id_1, "to_user": user_id_2, "status": "accepted"},
-                {"from_user": user_id_2, "to_user": user_id_1, "status": "accepted"}
-            ]
-        })
-        return friendship is not None
-    
-    @staticmethod
-    def get_friends(user_id):
-        """Lấy danh sách bạn bè"""
-        friendships = friends_collection.find({
-            "$or": [
-                {"from_user": user_id, "status": "accepted"},
-                {"to_user": user_id, "status": "accepted"}
-            ]
-        })
-        
-        friends = []
-        for f in friendships:
-            friend_id = f['to_user'] if f['from_user'] == user_id else f['from_user']
-            friends.append(friend_id)
-        return friends
-    
-    @staticmethod
-    def get_pending_requests_sent(user_id):
-        """Lấy danh sách lời mời đã gửi (chưa được chấp nhận)"""
-        requests = friends_collection.find({
-            "from_user": user_id,
-            "status": "pending"
-        })
-        
-        result = []
-        for r in requests:
-            result.append({
-                "to_user": r['to_user'],
-                "created_at": int(r['created_at'].timestamp() * 1000) if isinstance(r['created_at'], datetime) else r['created_at']
-            })
-        return result
-    
-    @staticmethod
-    def get_pending_requests_received(user_id):
-        """Lấy danh sách lời mời nhận được"""
-        requests = friends_collection.find({
-            "to_user": user_id,
-            "status": "pending"
-        })
-        
-        result = []
-        for r in requests:
-            result.append({
-                "from_user": r['from_user'],
-                "created_at": int(r['created_at'].timestamp() * 1000) if isinstance(r['created_at'], datetime) else r['created_at']
-            })
-        return result
+# friends_collection OLD - DEPRECATED (Now embedded in users)
+# messages_collection OLD - DEPRECATED (Now embedded in conversations)
 
 class UserModel:
     @staticmethod
-    def create_user(user_id, username, avatar=None):
-        """Tạo user mới"""
+    def create_user(user_id, username, email, password, avatar=None):
+        """Tạo user mới với password"""
+        # Check exists
+        if users_collection.find_one({"_id": user_id}):
+            return None
+            
         user = {
-            "_id": user_id,
+            "_id": user_id,  # Using email as ID
             "username": username,
+            "email": email,
+            "password_hash": get_password_hash(password),
             "avatar": avatar,
-            "created_at": datetime.now()
+            "created_at": datetime.now(),
+            "friends": [],         # List of friend user_ids
+            "friend_requests": [], # List of { from_user: id, created_at: date }
+            "sent_requests": []    # List of { to_user: id, created_at: date }
         }
         users_collection.insert_one(user)
         return user
     
     @staticmethod
     def get_user(user_id):
-        """Lấy thông tin user"""
-        return users_collection.find_one({"_id": user_id})
+        """Lấy thông tin user (loại bỏ sensitive info)"""
+        user = users_collection.find_one({"_id": user_id})
+        if user:
+            user.pop('password_hash', None)
+        return user
+    
+    @staticmethod
+    def get_user_by_username(username):
+        """Lấy user theo username"""
+        user = users_collection.find_one({"username": username})
+        if user:
+            user.pop('password_hash', None)
+        return user
+    
+    @staticmethod
+    def authenticate(user_id, password):
+        """Xác thực user - user_id có thể là email hoặc username"""
+        # Try to find by email first (_id)
+        user = users_collection.find_one({"_id": user_id})
+        
+        # If not found, try by username
+        if not user:
+            user = users_collection.find_one({"username": user_id})
+        
+        if not user:
+            return False
+        if not verify_password(password, user.get('password_hash', '')):
+            return False
+        return user
     
     @staticmethod
     def search_users(query, limit=10):
-        """Tìm kiếm user theo username hoặc user_id"""
         if not query:
             return []
-        
         users = users_collection.find({
             "$or": [
                 {"_id": {"$regex": query, "$options": "i"}},
@@ -307,3 +84,455 @@ class UserModel:
                 "avatar": user.get('avatar')
             })
         return result
+
+class FriendModel:
+    @staticmethod
+    def send_friend_request(from_user_id, to_user_id):
+        """Gửi lời mời kết bạn (update arrays trong user docs)"""
+        if from_user_id == to_user_id:
+            return {"status": "error", "message": "Không thể kết bạn với chính mình"}
+        
+        to_user = users_collection.find_one({"_id": to_user_id})
+        if not to_user:
+            return {"status": "error", "message": "User không tồn tại"}
+            
+        # Check if already friends or requested
+        if to_user_id in users_collection.find_one({"_id": from_user_id}).get('friends', []):
+            return {"status": "error", "message": "Đã là bạn bè"}
+        
+        # Check pending requests
+        existing_req = users_collection.find_one({
+            "_id": to_user_id, 
+            "friend_requests.from_user": from_user_id
+        })
+        if existing_req:
+            return {"status": "error", "message": "Đã gửi lời mời trước đó"}
+
+        now = datetime.now()
+        
+        # Add to 'friend_requests' of recipient
+        users_collection.update_one(
+            {"_id": to_user_id},
+            {"$push": {"friend_requests": {
+                "from_user": from_user_id,
+                "created_at": now
+            }}}
+        )
+        
+        # Add to 'sent_requests' of sender
+        users_collection.update_one(
+            {"_id": from_user_id},
+            {"$push": {"sent_requests": {
+                "to_user": to_user_id, 
+                "created_at": now
+            }}}
+        )
+        
+        return {"status": "sent", "timestamp": int(now.timestamp() * 1000)}
+
+    @staticmethod
+    def accept_friend_request(user_id, requester_id):
+        """Chấp nhận lời mời (Move from requests -> friends)"""
+        now = datetime.now()
+        
+        # 1. Remove request from recipient
+        res1 = users_collection.update_one(
+            {"_id": user_id},
+            {"$pull": {"friend_requests": {"from_user": requester_id}}}
+        )
+        
+        # 2. Remove sent_request from sender
+        users_collection.update_one(
+            {"_id": requester_id},
+            {"$pull": {"sent_requests": {"to_user": user_id}}}
+        )
+        
+        if res1.modified_count > 0:
+            # 3. Add to friends list (both sides)
+            users_collection.update_one(
+                {"_id": user_id},
+                {"$addToSet": {"friends": requester_id}}
+            )
+            users_collection.update_one(
+                {"_id": requester_id},
+                {"$addToSet": {"friends": user_id}}
+            )
+            return True
+        return False
+
+    @staticmethod
+    def get_friends(user_id):
+        """Get friends list with full user information"""
+        print(f"[FriendModel] Getting friends for user_id: {user_id}")
+        doc = users_collection.find_one({"_id": user_id}, {"friends": 1})
+        print(f"[FriendModel] User doc: {doc}")
+        friend_ids = doc.get('friends', []) if doc else []
+        print(f"[FriendModel] Friend IDs: {friend_ids}")
+        
+        if not friend_ids:
+            print(f"[FriendModel] No friends found for {user_id}")
+            return []
+        
+        # Get full user info for each friend
+        friends = []
+        for friend_id in friend_ids:
+            friend = users_collection.find_one(
+                {"_id": friend_id},
+                {"_id": 1, "username": 1, "avatar": 1, "online": 1}
+            )
+            if friend:
+                friends.append({
+                    "user_id": friend["_id"],
+                    "username": friend.get("username", friend["_id"]),
+                    "avatar": friend.get("avatar", ""),
+                    "online": friend.get("online", False)
+                })
+                print(f"[FriendModel] Added friend: {friend['_id']}")
+        
+        print(f"[FriendModel] Returning {len(friends)} friends")
+        return friends
+
+    @staticmethod
+    def get_pending_requests(user_id):
+        """Lấy danh sách lời mời nhận được"""
+        doc = users_collection.find_one({"_id": user_id}, {"friend_requests": 1})
+        if not doc: return {"received": [], "sent": []}
+        
+        received = []
+        for req in doc.get('friend_requests', []):
+            received.append({
+                "from_user": req['from_user'],
+                "created_at": int(req['created_at'].timestamp() * 1000)
+            })
+            
+        # Get sent
+        doc_sent = users_collection.find_one({"_id": user_id}, {"sent_requests": 1})
+        sent = []
+        for req in doc_sent.get('sent_requests', []) if doc_sent else []:
+            sent.append({
+                "to_user": req['to_user'],
+                "created_at": int(req['created_at'].timestamp() * 1000)
+            })
+            
+        return {"received": received, "sent": sent}
+
+    @staticmethod
+    def are_friends(user1, user2):
+        doc = users_collection.find_one({
+            "_id": user1,
+            "friends": user2
+        })
+        return doc is not None
+
+    @staticmethod
+    def reject_friend_request(user_id, requester_id):
+        """Từ Chối lời mời kết bạn"""
+        try:
+            print(f"[Model] Rejecting: user={user_id}, requester={requester_id}")
+            
+            # 1. Remove request from recipient
+            res1 = users_collection.update_one(
+                {"_id": user_id},
+                {"$pull": {"friend_requests": {"from_user": requester_id}}}
+            )
+            print(f"[Model] Removed from recipient: modified={res1.modified_count}")
+            
+            # 2. Remove sent_request from sender
+            res2 = users_collection.update_one(
+                {"_id": requester_id},
+                {"$pull": {"sent_requests": {"to_user": user_id}}}
+            )
+            print(f"[Model] Removed from sender: modified={res2.modified_count}")
+            
+            return res1.modified_count > 0
+        except Exception as e:
+            print(f"[Model] Error in reject_friend_request: {e}")
+            import traceback
+            traceback.print_exc()
+            raise
+
+class MessageModel:
+    @staticmethod
+    def insert_message(conversation_id, sender_id, text, msg_type="text", file_url=None, file_name=None, file_size=None):
+        """Embed message into Conversation document with optional file metadata"""
+        msg_id = ObjectId()
+        now = datetime.now()
+        
+        message = {
+            "_id": msg_id,
+            "sender_id": sender_id,
+            "text": text,
+            "msg_type": msg_type,
+            "created_at": now,
+            "receipts": {} # Can simplify if needed, keeping for read status
+        }
+        
+        # Add file metadata if present
+        if file_url:
+            message["file_url"] = file_url
+        if file_name:
+            message["file_name"] = file_name
+        if file_size:
+            message["file_size"] = file_size
+        
+        try:
+            conv_oid = ObjectId(conversation_id)
+        except:
+             # Fallback if string id
+            return None
+
+        # Push to messages array
+        conversations_collection.update_one(
+            {"_id": conv_oid},
+            {
+                "$push": {"messages": message},
+                "$set": {
+                    "last_message": {
+                         "text": text if text else (file_name if file_name else "File"),
+                         "sender_id": sender_id,
+                         "created_at": now
+                    }
+                }
+            }
+        )
+        
+        # Helpers for returning data
+        message['_id'] = str(msg_id)
+        message['created_at'] = int(now.timestamp() * 1000)
+        return message
+    
+    @staticmethod
+    def get_messages(conversation_id, limit=50):
+        """Lấy messages từ mảng embedded"""
+        try:
+            conv_oid = ObjectId(conversation_id)
+        except:
+            return []
+            
+        # Projection w/ slice to limit (MongoDB $slice: -limit means last N)
+        conv = conversations_collection.find_one(
+            {"_id": conv_oid},
+            {"messages": {"$slice": -limit}} 
+        )
+        
+        if not conv or 'messages' not in conv:
+            return []
+            
+        result = []
+        for msg in conv['messages']:
+            msg['_id'] = str(msg['_id'])
+            if isinstance(msg['created_at'], datetime):
+                msg['created_at'] = int(msg['created_at'].timestamp() * 1000)
+            result.append(msg)
+            
+        return result # Already in order if pushed in order
+
+    @staticmethod
+    def update_receipt(conversation_id, message_id, user_id, status):
+        """Update embedded message receipt status"""
+        # Complex update in array: messages.$[elem].receipts.user_id
+        try:
+            conv_oid = ObjectId(conversation_id)
+            msg_oid = ObjectId(message_id)
+        except:
+            return
+
+        conversations_collection.update_one(
+            {"_id": conv_oid, "messages._id": msg_oid},
+            {"$set": {
+                "messages.$.receipts." + user_id: {
+                    "status": status, 
+                    "updated_at": datetime.now()
+                }
+            }}
+        )
+
+class ConversationModel:
+    @staticmethod
+    def create_or_get_direct_conversation(user_id_1, user_id_2, initiator_id=None):
+        # ... logic similar to before but 'messages' array init ...
+        existing = conversations_collection.find_one({
+            "type": "direct",
+            "participants": {"$all": [user_id_1, user_id_2]}
+        })
+        
+        if existing:
+            existing['_id'] = str(existing['_id'])
+            if 'messages' in existing:
+                del existing['messages'] # Don't return all messages in summary
+            if existing.get('last_message') and isinstance(existing['last_message'].get('created_at'), datetime):
+                existing['last_message']['created_at'] = int(existing['last_message']['created_at'].timestamp() * 1000)
+            return existing
+        
+        are_friends = FriendModel.are_friends(user_id_1, user_id_2)
+        
+        now = datetime.now()
+        conv = {
+            "type": "direct",
+            "participants": sorted([user_id_1, user_id_2]),
+            "created_at": now,
+            "last_message": None,
+            "status": "accepted" if are_friends else "pending",
+            "initiator": initiator_id,
+            "messages": [] # Embed messages here
+        }
+        result = conversations_collection.insert_one(conv)
+        conv['_id'] = str(result.inserted_id)
+        conv['created_at'] = int(now.timestamp() * 1000)
+        return conv
+    
+    @staticmethod
+    def get_user_conversations(user_id):
+        convs = conversations_collection.find(
+            {"participants": user_id},
+            {"messages": 0} # Exclude messages list for summary
+        ).sort("last_message.created_at", -1)
+        
+        result = []
+        for c in convs:
+            c['_id'] = str(c['_id'])
+            if c.get('created_at'):
+                c['created_at'] = int(c['created_at'].timestamp() * 1000)
+            if c.get('last_message') and c['last_message'].get('created_at'):
+                c['last_message']['created_at'] = int(c['last_message']['created_at'].timestamp() * 1000)
+            result.append(c)
+        return result
+
+    @staticmethod
+    def accept_conversation(conversation_id):
+        # ... same logic ...
+        try:
+            oid = ObjectId(conversation_id)
+            conversations_collection.update_one({"_id": oid}, {"$set": {"status": "accepted"}})
+        except:
+            pass
+    
+    @staticmethod
+    def update_last_message(conversation_id, message):
+        # This is now handled inside MessageModel.insert_message mostly
+        # But keeping for compatibility if utilized elsewhere
+        pass
+
+    @staticmethod
+    def create_group_conversation(creator_id, name, member_ids):
+        """Tạo nhóm chat mới"""
+        try:
+            # Validate members
+            if not member_ids or len(member_ids) < 2:
+                return {"status": "error", "message": "Nhóm phải có ít nhất 2 thành viên"}
+            
+            # Add creator to members if not already
+            all_members = list(set([creator_id] + member_ids))
+            
+            now = datetime.now()
+            group = {
+                "type": "group",
+                "name": name or f"Group {len(all_members)} members",
+                "participants": all_members,
+                "created_at": now,
+                "created_by": creator_id,
+                "admins": [creator_id],  # Creator is admin
+                "last_message": None,
+                "status": "accepted",
+                "messages": []
+            }
+            
+            result = conversations_collection.insert_one(group)
+            group['_id'] = str(result.inserted_id)
+            group['created_at'] = int(now.timestamp() * 1000)
+            del group['messages']  # Don't return messages array
+            
+            return {"status": "success", "conversation": group}
+        except Exception as e:
+            print(f"[Model] Error creating group: {e}")
+            return {"status": "error", "message": str(e)}
+
+    @staticmethod
+    def add_group_member(conversation_id, user_id, new_member_id):
+        """Thêm thành viên vào nhóm (chỉ admin)"""
+        try:
+            conv_oid = ObjectId(conversation_id)
+            conv = conversations_collection.find_one({"_id": conv_oid})
+            
+            if not conv or conv.get('type') != 'group':
+                return {"status": "error", "message": "Nhóm không tồn tại"}
+            
+            # Check if user is admin
+            if user_id not in conv.get('admins', []):
+                return {"status": "error", "message": "Chỉ admin mới có thể thêm thành viên"}
+            
+            # Add member
+            result = conversations_collection.update_one(
+                {"_id": conv_oid},
+                {"$addToSet": {"participants": new_member_id}}
+            )
+            
+            return {"status": "success", "modified": result.modified_count > 0}
+        except Exception as e:
+            print(f"[Model] Error adding member: {e}")
+            return {"status": "error", "message": str(e)}
+
+    @staticmethod
+    def remove_group_member(conversation_id, user_id, member_to_remove):
+        """Xóa thành viên khỏi nhóm (admin hoặc tự rời)"""
+        try:
+            conv_oid = ObjectId(conversation_id)
+            conv = conversations_collection.find_one({"_id": conv_oid})
+            
+            if not conv or conv.get('type') != 'group':
+                return {"status": "error", "message": "Nhóm không tồn tại"}
+            
+            # Check permission: admin or removing self
+            is_admin = user_id in conv.get('admins', [])
+            is_self = user_id == member_to_remove
+            
+            if not is_admin and not is_self:
+                return {"status": "error", "message": "Không có quyền xóa thành viên"}
+            
+            # Cannot remove creator
+            if member_to_remove == conv.get('created_by'):
+                return {"status": "error", "message": "Không thể xóa người tạo nhóm"}
+            
+            # Remove member
+            result = conversations_collection.update_one(
+                {"_id": conv_oid},
+                {"$pull": {"participants": member_to_remove, "admins": member_to_remove}}
+            )
+            
+            return {"status": "success", "modified": result.modified_count > 0}
+        except Exception as e:
+            print(f"[Model] Error removing member: {e}")
+            return {"status": "error", "message": str(e)}
+
+    @staticmethod
+    def update_group_info(conversation_id, user_id, name=None, avatar=None):
+        """Cập nhật thông tin nhóm (chỉ admin)"""
+        try:
+            conv_oid = ObjectId(conversation_id)
+            conv = conversations_collection.find_one({"_id": conv_oid})
+            
+            if not conv or conv.get('type') != 'group':
+                return {"status": "error", "message": "Nhóm không tồn tại"}
+            
+            # Check if user is admin
+            if user_id not in conv.get('admins', []):
+                return {"status": "error", "message": "Chỉ admin mới có thể chỉnh sửa"}
+            
+            update_fields = {}
+            if name:
+                update_fields["name"] = name
+            if avatar:
+                update_fields["avatar"] = avatar
+            
+            if not update_fields:
+                return {"status": "error", "message": "Không có gì để cập nhật"}
+            
+            conversations_collection.update_one(
+                {"_id": conv_oid},
+                {"$set": update_fields}
+            )
+            
+            return {"status": "success"}
+        except Exception as e:
+            print(f"[Model] Error updating group: {e}")
+            return {"status": "error", "message": str(e)}

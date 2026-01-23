@@ -72,8 +72,19 @@ export function createFriendRequestNotification(fromUserId) {
     
     rejectBtn.addEventListener('click', () => {
         console.log("[FriendRequest] Rejecting from:", fromUserId);
-        // TODO: Implement reject friend request
-        removeNotification(notification);
+        sendEvent('reject_friend_request', { from_user_id: fromUserId });
+        
+        // Show rejection message
+        notification.innerHTML = `
+            <div class="flex items-center space-x-2 text-slate-400">
+                <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                <span class="text-sm font-medium">Đã từ chối lời mời</span>
+            </div>
+        `;
+        
+        setTimeout(() => {
+            removeNotification(notification);
+        }, 2000);
     });
     
     closeBtn.addEventListener('click', () => {
