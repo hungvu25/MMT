@@ -128,7 +128,7 @@ class FriendModel:
             }}}
         )
         
-        return {"status": "sent", "timestamp": int(now.timestamp() * 1000)}
+        return {"status": "sent", "to_user_id": to_user_id, "timestamp": int(now.timestamp() * 1000)}
 
     @staticmethod
     def accept_friend_request(user_id, requester_id):
@@ -157,12 +157,23 @@ class FriendModel:
                 {"_id": requester_id},
                 {"$addToSet": {"friends": user_id}}
             )
+            
+            # 4. Update any pending conversations between these two users to 'accepted'
+            conversations_collection.update_many(
+                {
+                    "type": "direct",
+                    "participants": {"$all": [user_id, requester_id]},
+                    "status": "pending"
+                },
+                {"$set": {"status": "accepted"}}
+            )
+            
             return True
         return False
 
     @staticmethod
-    def get_friends(user_id):
-        """Get friends list with full user information"""
+    def get_friends(user_id, online_users=None):
+        """Get friends list with full user information and online status"""
         print(f"[FriendModel] Getting friends for user_id: {user_id}")
         doc = users_collection.find_one({"_id": user_id}, {"friends": 1})
         print(f"[FriendModel] User doc: {doc}")
@@ -170,27 +181,24 @@ class FriendModel:
         print(f"[FriendModel] Friend IDs: {friend_ids}")
         
         if not friend_ids:
-            print(f"[FriendModel] No friends found for {user_id}")
             return []
         
         # Get full user info for each friend
-        friends = []
-        for friend_id in friend_ids:
-            friend = users_collection.find_one(
-                {"_id": friend_id},
-                {"_id": 1, "username": 1, "avatar": 1, "online": 1}
-            )
-            if friend:
-                friends.append({
-                    "user_id": friend["_id"],
-                    "username": friend.get("username", friend["_id"]),
-                    "avatar": friend.get("avatar", ""),
-                    "online": friend.get("online", False)
-                })
-                print(f"[FriendModel] Added friend: {friend['_id']}")
+        friends_data = []
+        for fid in friend_ids:
+            friend_user = users_collection.find_one({"_id": fid}, {"password_hash": 0})
+            if friend_user:
+                friend_info = {
+                    "user_id": friend_user["_id"],
+                    "username": friend_user.get("username", friend_user["_id"]),
+                    "avatar": friend_user.get("avatar"),
+                    "online": online_users.get(fid, False) if online_users else False  # Check if online
+                }
+                friends_data.append(friend_info)
+                print(f"[FriendModel] Added friend: {friend_info}")
         
-        print(f"[FriendModel] Returning {len(friends)} friends")
-        return friends
+        print(f"[FriendModel] Returning {len(friends_data)} friends")
+        return friends_data
 
     @staticmethod
     def get_pending_requests(user_id):

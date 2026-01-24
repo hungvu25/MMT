@@ -235,20 +235,29 @@ function setupWebSocketHandlersGlobal() {
         // Add to state
         addMessage(data.conversation_id, msg);
 
-        // Update last_message in conversation
-        const updatedConversations = state.conversations.map(c =>
-            c._id === data.conversation_id
-                ? { 
-                    ...c, 
-                    last_message: {
-                        text: msg.text || msg.file_name || "File",
-                        sender_id: msg.sender_id,
-                        created_at: msg.created_at
+        // Check if conversation exists in list, if not, fetch it
+        const conversationExists = state.conversations.find(c => c._id === data.conversation_id);
+        
+        if (!conversationExists) {
+            // Fetch conversation details and add to list
+            console.log("[App] 📥 Conversation not in list, fetching...");
+            sendEvent('get_conversations', {}, 'r_refresh_convs_' + Date.now());
+        } else {
+            // Update last_message in conversation
+            const updatedConversations = state.conversations.map(c =>
+                c._id === data.conversation_id
+                    ? { 
+                        ...c, 
+                        last_message: {
+                            text: msg.text || msg.file_name || "File",
+                            sender_id: msg.sender_id,
+                            created_at: msg.created_at
+                        }
                     }
-                }
-                : c
-        );
-        setConversations(updatedConversations);
+                    : c
+            );
+            setConversations(updatedConversations);
+        }
 
         // ← SỬA: Chỉ hiển thị nếu KHÔNG phải tin nhắn của mình
         if (state.currentConversation?._id === data.conversation_id) {
@@ -357,9 +366,10 @@ function setupWebSocketHandlersGlobal() {
 
     // Kết bạn thành công
     onWSEvent('friend_request_sent', (data) => {
-        console.log("[App] ✅ Friend request sent to:", data.to_user_id);
+        console.log("[App] ✅ Friend request sent:", data);
         import('./components/Sidebar.js').then(({ showNotification }) => {
-            showNotification(`Đã gửi lời mời kết bạn đến ${data.to_user_id}`, 'success');
+            const targetUser = data.to_user_id || 'người dùng';
+            showNotification(`Đã gửi lời mời kết bạn đến ${targetUser}`, 'success');
         });
     });
 

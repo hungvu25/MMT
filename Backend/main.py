@@ -273,11 +273,25 @@ async def ws_endpoint(ws: WebSocket):
                 if not other_user_id: 
                      continue
 
-                conv = ConversationModel.create_or_get_direct_conversation(sender_id, other_user_id, initiator_id=sender_id)
+                # Check if other user exists (by user_id or username)
+                target_user_id = None
+                if UserModel.get_user(other_user_id):
+                    target_user_id = other_user_id
+                else:
+                    # Try username lookup
+                    user_doc = UserModel.get_user_by_username(other_user_id)
+                    if user_doc:
+                        target_user_id = user_doc.get("_id")
+                
+                if not target_user_id:
+                    await ws_send(ws, "error", {"code": "USER_NOT_FOUND", "message": "User không tồn tại"}, request_id)
+                    continue
+
+                conv = ConversationModel.create_or_get_direct_conversation(sender_id, target_user_id, initiator_id=sender_id)
                 
                 # Notify recipient if new and pending
                 if conv.get('status') == 'pending' and conv.get('initiator') == sender_id:
-                    recipient_ws = user_ws.get(other_user_id)
+                    recipient_ws = user_ws.get(target_user_id)
                     if recipient_ws:
                         await ws_send(recipient_ws, "new_conversation", {"conversation": conv})
                 
@@ -348,25 +362,22 @@ async def ws_endpoint(ws: WebSocket):
                     "message": saved_msg # Struct is compatible
                 })
                 
-                # Notify if not in room (simplified from before)
-                # ... (logic similar to before, checking participants)
-                # For brevity, assuming user_ws notification logic is preserved if needed.
-                # Adding back simplified notification:
+                # Notify all participants (even if not in room) - FIXED: now notifies users not in room
                 conv = conversations_collection.find_one({"_id": ObjectId(conv_id)}) if len(conv_id) == 24 else None
-                if conv and conv.get('type') == 'direct':
+                if conv:
                     participants = conv.get('participants', [])
-                    recipient_id = next((p for p in participants if p != sender_id), None)
-                    if recipient_id:
-                        recipient_ws = user_ws.get(recipient_id)
-                        if recipient_ws and recipient_ws not in rooms.get(conv_id, set()):
-                             await ws_send(recipient_ws, "new_message_notification", {
-                                "conversation_id": conv_id,
-                                "message": saved_msg,
-                                "conversation": {
-                                    "_id": str(conv['_id']),
-                                    "last_message": conv.get('last_message')
-                                }
-                            })
+                    for participant_id in participants:
+                        if participant_id == sender_id:
+                            continue  # Don't notify sender
+                        
+                        recipient_ws = user_ws.get(participant_id)
+                        if recipient_ws:
+                            # If not in room, send notification, otherwise they already got broadcast
+                            if recipient_ws not in rooms.get(conv_id, set()):
+                                await ws_send(recipient_ws, "new_message", {
+                                    "conversation_id": conv_id,
+                                    "message": saved_msg
+                                })
                 continue
 
             # --- RECEIPT ---
@@ -433,9 +444,18 @@ async def ws_endpoint(ws: WebSocket):
                     await ws_send(ws, "friend_request_accepted", {"success": success, "friend_id": from_user_id}, request_id)
                     
                     if success:
+                        # Notify the sender
                         sender_ws = user_ws.get(from_user_id)
                         if sender_ws:
                             await ws_send(sender_ws, "friend_accepted", {"user_id": sender_id})
+                        
+                        # Send updated conversation lists to both users so status changes from pending to accepted
+                        convs_acceptor = ConversationModel.get_user_conversations(sender_id)
+                        await ws_send(ws, "conversations_list", {"conversations": convs_acceptor}, "r_refresh_after_friend")
+                        
+                        if sender_ws:
+                            convs_sender = ConversationModel.get_user_conversations(from_user_id)
+                            await ws_send(sender_ws, "conversations_list", {"conversations": convs_sender}, "r_refresh_after_friend")
                 continue
             
             # --- CLOSE/ACCEPT CONVERSATION ---
@@ -449,7 +469,9 @@ async def ws_endpoint(ws: WebSocket):
             # --- GET FRIENDS LIST ---
             if type_ == "get_friends":
                 print(f"[WS] get_friends request from: {sender_id}")
-                friends = FriendModel.get_friends(sender_id)
+                # Create online_users dict from user_ws
+                online_users = {uid: True for uid in user_ws.keys()}
+                friends = FriendModel.get_friends(sender_id, online_users)
                 print(f"[WS] Sending {len(friends)} friends to {sender_id}")
                 await ws_send(ws, "friends_list", {"friends": friends}, request_id)
                 continue
