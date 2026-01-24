@@ -78,12 +78,21 @@ function updateRightPanel(panel, state) {
     }
 
     // For group chat
+    const isAdmin = currentUser?.user_id === conv.created_by;
+    
     panel.innerHTML = `
         <div class="p-6 text-center border-b border-gray-100">
             <div class="w-20 h-20 mx-auto bg-indigo-100 rounded-2xl flex items-center justify-center text-2xl font-bold text-indigo-600 mb-3 shadow-inner">
                 ${avatar}
             </div>
-            <h2 class="font-bold text-slate-900 text-lg">${convName}</h2>
+            <h2 class="font-bold text-slate-900 text-lg flex items-center justify-center gap-2">
+                ${convName}
+                ${isAdmin ? `
+                    <button class="edit-group-name-btn p-1 hover:bg-slate-100 rounded transition-colors" title="Đổi tên nhóm">
+                        <svg class="w-4 h-4 text-slate-400 hover:text-indigo-600" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+                    </button>
+                ` : ''}
+            </h2>
             <p class="text-sm text-slate-500 mt-1">Group Chat • ${memberCount} members</p>
         </div>
 
@@ -101,12 +110,14 @@ function updateRightPanel(panel, state) {
                 </div>
                 <span class="text-xs font-medium text-slate-500 group-hover:text-indigo-600">Files</span>
             </button>
-            <button class="flex flex-col items-center gap-1 group">
-                <div class="w-10 h-10 rounded-full bg-slate-50 flex items-center justify-center text-slate-500 group-hover:bg-indigo-50 group-hover:text-indigo-600 transition-colors">
-                    <svg class="w-5 h-5" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20"/><path d="M2 12h20"/></svg>
-                </div>
-                <span class="text-xs font-medium text-slate-500 group-hover:text-indigo-600">Links</span>
-            </button>
+            ${isAdmin ? `
+                <button class="delete-conversation-btn flex flex-col items-center gap-1 group">
+                    <div class="w-10 h-10 rounded-full bg-slate-50 flex items-center justify-center text-slate-500 group-hover:bg-red-50 group-hover:text-red-600 transition-colors">
+                        <svg class="w-5 h-5" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+                    </div>
+                    <span class="text-xs font-medium text-slate-500 group-hover:text-red-600">Delete</span>
+                </button>
+            ` : ''}
         </div>
 
         <!-- Members -->
@@ -136,6 +147,34 @@ function updateRightPanel(panel, state) {
             }
         });
     });
+    
+    // Add member button
+    const addMemberBtn = panel.querySelector('.add-member-btn');
+    if (addMemberBtn) {
+        addMemberBtn.addEventListener('click', () => {
+            showAddMemberModal(conv._id, members);
+        });
+    }
+    
+    // Edit group name button
+    const editNameBtn = panel.querySelector('.edit-group-name-btn');
+    if (editNameBtn) {
+        editNameBtn.addEventListener('click', () => {
+            showEditGroupNameModal(conv._id, convName);
+        });
+    }
+    
+    // Delete conversation button
+    const deleteBtn = panel.querySelector('.delete-conversation-btn');
+    if (deleteBtn) {
+        deleteBtn.addEventListener('click', () => {
+            if (confirm(`Bạn có chắc muốn xóa nhóm "${convName}"? Hành động này không thể hoàn tác!`)) {
+                sendEvent('delete_conversation', {
+                    conversation_id: conv._id
+                });
+            }
+        });
+    }
 }
 
 function getDirectChatName(conv, currentUserId) {
@@ -168,4 +207,162 @@ function createMemberItem(memberId, currentUserId, creatorId, conversationId) {
             ` : ''}
         </div>
     `;
+}
+
+// Modal for adding members
+function showAddMemberModal(conversationId, currentMembers) {
+    const existingModal = document.getElementById('add-member-modal');
+    if (existingModal) existingModal.remove();
+    
+    const modal = document.createElement('div');
+    modal.id = 'add-member-modal';
+    modal.className = 'fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-[100] animate-fade-in';
+    
+    modal.innerHTML = `
+        <div class="bg-slate-900 rounded-2xl shadow-2xl border border-slate-700 w-full max-w-md mx-4">
+            <div class="flex items-center justify-between p-6 border-b border-slate-700">
+                <h2 class="text-xl font-bold text-white">Thêm thành viên</h2>
+                <button class="close-btn text-slate-400 hover:text-white transition-colors p-1 hover:bg-slate-700 rounded-lg">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                </button>
+            </div>
+            <div class="p-6">
+                <div id="friends-select-list" class="space-y-2 max-h-96 overflow-y-auto">
+                    <div class="text-center text-slate-500 py-4">Đang tải danh sách bạn bè...</div>
+                </div>
+            </div>
+            <div class="flex justify-end gap-3 p-6 border-t border-slate-700">
+                <button class="cancel-btn px-4 py-2 text-slate-400 hover:text-white hover:bg-slate-700 rounded-lg transition-colors">Hủy</button>
+            </div>
+        </div>
+    `;
+    
+    document.body.appendChild(modal);
+    
+    // Load friends
+    const friendsListDiv = modal.querySelector('#friends-select-list');
+    
+    const handleFriendsList = (e) => {
+        const friends = e.detail?.friends || [];
+        const availableFriends = friends.filter(f => !currentMembers.includes(f.user_id));
+        
+        if (availableFriends.length === 0) {
+            friendsListDiv.innerHTML = '<div class="text-center text-slate-500 py-4">Tất cả bạn bè đã ở trong nhóm</div>';
+            return;
+        }
+        
+        friendsListDiv.innerHTML = availableFriends.map(friend => `
+            <div class="flex items-center justify-between p-3 hover:bg-slate-700/50 rounded-lg transition-colors">
+                <div class="flex items-center">
+                    <div class="w-10 h-10 rounded-full bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center text-white font-bold mr-3">
+                        ${(friend.username || friend.user_id)[0].toUpperCase()}
+                    </div>
+                    <span class="text-slate-200">${friend.username || friend.user_id}</span>
+                </div>
+                <button class="add-friend-to-group-btn px-3 py-1 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg transition-colors text-sm" data-friend-id="${friend.user_id}">
+                    Thêm
+                </button>
+            </div>
+        `).join('');
+        
+        // Add event listeners
+        modal.querySelectorAll('.add-friend-to-group-btn').forEach(btn => {
+            btn.addEventListener('click', () => {
+                const friendId = btn.dataset.friendId;
+                sendEvent('add_group_member', {
+                    conversation_id: conversationId,
+                    member_id: friendId
+                });
+                btn.textContent = 'Đã thêm';
+                btn.disabled = true;
+                btn.classList.add('opacity-50', 'cursor-not-allowed');
+            });
+        });
+    };
+    
+    document.addEventListener('friendsList', handleFriendsList);
+    sendEvent('get_friends', {}, 'r_add_member_' + Date.now());
+    
+    // Close handlers
+    const closeBtn = modal.querySelector('.close-btn');
+    const cancelBtn = modal.querySelector('.cancel-btn');
+    const closeModal = () => {
+        document.removeEventListener('friendsList', handleFriendsList);
+        modal.remove();
+    };
+    
+    closeBtn.addEventListener('click', closeModal);
+    cancelBtn.addEventListener('click', closeModal);
+    modal.addEventListener('click', (e) => {
+        if (e.target === modal) closeModal();
+    });
+}
+
+// Modal for editing group name
+function showEditGroupNameModal(conversationId, currentName) {
+    const existingModal = document.getElementById('edit-name-modal');
+    if (existingModal) existingModal.remove();
+    
+    const modal = document.createElement('div');
+    modal.id = 'edit-name-modal';
+    modal.className = 'fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-[100] animate-fade-in';
+    
+    modal.innerHTML = `
+        <div class="bg-slate-900 rounded-2xl shadow-2xl border border-slate-700 w-full max-w-md mx-4">
+            <div class="flex items-center justify-between p-6 border-b border-slate-700">
+                <h2 class="text-xl font-bold text-white">Đổi tên nhóm</h2>
+                <button class="close-btn text-slate-400 hover:text-white transition-colors p-1 hover:bg-slate-700 rounded-lg">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                </button>
+            </div>
+            <div class="p-6">
+                <label class="block text-sm font-medium text-slate-300 mb-2">Tên nhóm mới</label>
+                <input 
+                    type="text" 
+                    id="new-group-name" 
+                    value="${currentName}" 
+                    class="w-full bg-slate-800 border border-slate-700 text-white rounded-lg px-4 py-2.5 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                    autofocus
+                />
+            </div>
+            <div class="flex justify-end gap-3 p-6 border-t border-slate-700">
+                <button class="cancel-btn px-4 py-2 text-slate-400 hover:text-white hover:bg-slate-700 rounded-lg transition-colors">Hủy</button>
+                <button class="save-btn px-6 py-2 bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-700 hover:to-purple-700 text-white font-semibold rounded-lg transition-all">
+                    Lưu
+                </button>
+            </div>
+        </div>
+    `;
+    
+    document.body.appendChild(modal);
+    
+    const input = modal.querySelector('#new-group-name');
+    const saveBtn = modal.querySelector('.save-btn');
+    const closeBtn = modal.querySelector('.close-btn');
+    const cancelBtn = modal.querySelector('.cancel-btn');
+    
+    const closeModal = () => modal.remove();
+    
+    saveBtn.addEventListener('click', () => {
+        const newName = input.value.trim();
+        if (newName && newName !== currentName) {
+            sendEvent('update_group_info', {
+                conversation_id: conversationId,
+                name: newName
+            });
+            closeModal();
+        }
+    });
+    
+    input.addEventListener('keypress', (e) => {
+        if (e.key === 'Enter') saveBtn.click();
+    });
+    
+    closeBtn.addEventListener('click', closeModal);
+    cancelBtn.addEventListener('click', closeModal);
+    modal.addEventListener('click', (e) => {
+        if (e.target === modal) closeModal();
+    });
+    
+    setTimeout(() => input.select(), 100);
 }

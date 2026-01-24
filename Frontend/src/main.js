@@ -467,14 +467,79 @@ function setupWebSocketHandlersGlobal() {
         import('./components/Sidebar.js').then(({ showNotification }) => {
             showNotification('Bạn đã bị xóa khỏi nhóm', 'warning');
         });
-        // Reload conversations
+        
+        // If currently viewing this conversation, clear it
+        const state = getState();
+        if (state.currentConversation === data.conversation_id) {
+            setCurrentConversation(null);
+            setMessages([]);
+            
+            // Clear chat panel
+            const chatPanel = document.getElementById('chat-panel');
+            if (chatPanel) {
+                chatPanel.innerHTML = '<div class="flex items-center justify-center h-full text-gray-400">Chọn một đoạn chat để bắt đầu nhắn tin</div>';
+            }
+            
+            // Clear right panel
+            const rightPanel = document.getElementById('right-panel');
+            if (rightPanel) {
+                rightPanel.innerHTML = '';
+            }
+        }
+        
+        // Reload conversations to remove this group from list
         sendEvent('get_conversations');
     });
 
     // Group info updated
     onWSEvent('group_info_updated', (data) => {
         console.log("[App] 📝 Group info updated:", data);
-        sendEvent('get_conversations');
+        const state = getState();
+        
+        // Update conversations list
+        const updatedConvs = state.conversations.map(c => {
+            if (c._id === data.conversation_id) {
+                return {
+                    ...c,
+                    name: data.name || c.name,
+                    avatar: data.avatar || c.avatar
+                };
+            }
+            return c;
+        });
+        setConversations(updatedConvs);
+        
+        // Update current conversation if it's the one being updated
+        if (state.currentConversation?._id === data.conversation_id) {
+            const updatedCurrentConv = {
+                ...state.currentConversation,
+                name: data.name || state.currentConversation.name,
+                avatar: data.avatar || state.currentConversation.avatar
+            };
+            setCurrentConversation(updatedCurrentConv);
+            updateChatHeader(updatedCurrentConv);
+        }
+    });
+    
+    // Conversation deleted
+    onWSEvent('conversation_deleted', (data) => {
+        console.log("[App] 🗑️ Conversation deleted:", data.conversation_id);
+        const state = getState();
+        
+        // Remove from conversations list
+        const updatedConvs = state.conversations.filter(c => c._id !== data.conversation_id);
+        setConversations(updatedConvs);
+        
+        // If currently viewing this conversation, clear it
+        if (state.currentConversation?._id === data.conversation_id) {
+            setCurrentConversation(null);
+            clearMessages();
+            updateChatHeader(null);
+        }
+        
+        import('./components/Sidebar.js').then(({ showNotification }) => {
+            showNotification('Đoạn chat đã bị xóa', 'info');
+        });
     });
 }
 

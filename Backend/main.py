@@ -200,9 +200,13 @@ async def ws_send(ws: WebSocket, type_: str, data: dict, request_id=None):
     except:
         pass
 
-async def broadcast(conversation_id: str, type_: str, data: dict):
+async def broadcast(conversation_id: str, type_: str, data: dict, exclude_sender_id: str = None):
+    """Broadcast message to all in room, optionally excluding sender"""
     for ws in list(rooms.get(conversation_id, set())):
         try:
+            # Skip sender if exclude_sender_id is provided
+            if exclude_sender_id and ws_user.get(ws) == exclude_sender_id:
+                continue
             await ws_send(ws, type_, data)
         except:
             pass
@@ -356,13 +360,13 @@ async def ws_endpoint(ws: WebSocket):
                     "created_at": saved_msg["created_at"]
                 }, request_id)
 
-                # Broadcast to room
+                # Broadcast to room (exclude sender to avoid duplicate)
                 await broadcast(conv_id, "new_message", {
                     "conversation_id": conv_id,
-                    "message": saved_msg # Struct is compatible
-                })
+                    "message": saved_msg
+                }, exclude_sender_id=sender_id)
                 
-                # Notify all participants (even if not in room) - FIXED: now notifies users not in room
+                # Notify all participants who are NOT in room
                 conv = conversations_collection.find_one({"_id": ObjectId(conv_id)}) if len(conv_id) == 24 else None
                 if conv:
                     participants = conv.get('participants', [])
@@ -372,7 +376,7 @@ async def ws_endpoint(ws: WebSocket):
                         
                         recipient_ws = user_ws.get(participant_id)
                         if recipient_ws:
-                            # If not in room, send notification, otherwise they already got broadcast
+                            # If not in room, send notification
                             if recipient_ws not in rooms.get(conv_id, set()):
                                 await ws_send(recipient_ws, "new_message", {
                                     "conversation_id": conv_id,
@@ -596,6 +600,27 @@ async def ws_endpoint(ws: WebSocket):
                         await broadcast(conversation_id, "group_info_updated", update_data)
                     else:
                         await ws_send(ws, "error", {"code": "UPDATE_GROUP_ERROR", "message": result.get("message")}, request_id)
+                continue
+            
+            # --- DELETE CONVERSATION ---
+            if type_ == "delete_conversation":
+                conversation_id = data.get("conversation_id")
+                
+                if conversation_id:
+                    result = ConversationModel.delete_conversation(conversation_id, sender_id)
+                    
+                    if result.get("status") == "success":
+                        await ws_send(ws, "conversation_deleted", {"conversation_id": conversation_id}, request_id)
+                        
+                        # Notify all participants
+                        participants = result.get("participants", [])
+                        for participant_id in participants:
+                            if participant_id != sender_id:
+                                participant_ws = user_ws.get(participant_id)
+                                if participant_ws:
+                                    await ws_send(participant_ws, "conversation_deleted", {"conversation_id": conversation_id})
+                    else:
+                        await ws_send(ws, "error", {"code": "DELETE_ERROR", "message": result.get("message")}, request_id)
                 continue
 
             await ws_send(ws, "error", {"code": "UNKNOWN_TYPE", "message": f"Unknown type: {type_}"}, request_id)

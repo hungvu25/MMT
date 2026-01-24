@@ -544,3 +544,30 @@ class ConversationModel:
         except Exception as e:
             print(f"[Model] Error updating group: {e}")
             return {"status": "error", "message": str(e)}
+    
+    @staticmethod
+    def delete_conversation(conversation_id, user_id):
+        """Xóa conversation (chỉ admin/creator)"""
+        try:
+            conv_oid = ObjectId(conversation_id)
+            conv = conversations_collection.find_one({"_id": conv_oid})
+            
+            if not conv:
+                return {"status": "error", "message": "Conversation không tồn tại"}
+            
+            # For group: only admin/creator can delete
+            if conv.get('type') == 'group':
+                if user_id not in conv.get('admins', []) and user_id != conv.get('created_by'):
+                    return {"status": "error", "message": "Chỉ admin mới có thể xóa nhóm"}
+            # For direct: any participant can delete (for themselves)
+            elif conv.get('type') == 'direct':
+                if user_id not in conv.get('participants', []):
+                    return {"status": "error", "message": "Không có quyền xóa"}
+            
+            # Delete conversation
+            conversations_collection.delete_one({"_id": conv_oid})
+            
+            return {"status": "success", "conversation_id": conversation_id, "participants": conv.get('participants', [])}
+        except Exception as e:
+            print(f"[Model] Error deleting conversation: {e}")
+            return {"status": "error", "message": str(e)}
