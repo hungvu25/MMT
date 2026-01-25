@@ -494,9 +494,23 @@ function setupWebSocketHandlersGlobal() {
     // Member removed
     onWSEvent('member_removed', (data) => {
         console.log("[App] ➖ Member removed:", data);
+        // Always refresh conversations to update participant list immediately
+        sendEvent('get_conversations');
+    });
+
+    // Conversation updated (after member changes)
+    onWSEvent('conversation_updated', (data) => {
+        const conv = data.conversation;
+        if (!conv || !conv._id) return;
         const state = getState();
-        if (state.currentConversation === data.conversation_id) {
-            sendEvent('get_conversations');
+        const updatedConvs = (state.conversations || []).map(c =>
+            c._id === conv._id ? conv : c
+        );
+        setConversations(updatedConvs);
+
+        if (state.currentConversation?._id === conv._id) {
+            setCurrentConversation(conv);
+            updateChatHeader(conv);
         }
     });
 

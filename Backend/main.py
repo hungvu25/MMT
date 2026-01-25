@@ -635,7 +635,20 @@ async def ws_endpoint(ws: WebSocket):
                             await ws_send(member_ws, "removed_from_group", {"conversation_id": conversation_id})
                         
                         # Broadcast to remaining members
-                        await broadcast(conversation_id, "member_removed", {"member_id": member_id, "removed_by": sender_id})
+                        await broadcast(conversation_id, "member_removed", {"member_id": member_id, "removed_by": sender_id, "conversation_id": conversation_id})
+
+                        # Send updated conversation info (without messages) to remaining members for immediate UI refresh
+                        try:
+                            conv = conversations_collection.find_one({"_id": ObjectId(conversation_id)}, {"messages": 0})
+                            if conv:
+                                conv["_id"] = str(conv["_id"])
+                                if conv.get("created_at"):
+                                    conv["created_at"] = int(conv["created_at"].timestamp() * 1000)
+                                if conv.get("last_message") and conv["last_message"].get("created_at"):
+                                    conv["last_message"]["created_at"] = int(conv["last_message"]["created_at"].timestamp() * 1000)
+                                await broadcast(conversation_id, "conversation_updated", {"conversation": conv})
+                        except Exception as e:
+                            print(f"[WS] conversation update after remove failed: {e}")
                     else:
                         await ws_send(ws, "error", {"code": "REMOVE_MEMBER_ERROR", "message": result.get("message")}, request_id)
                 continue

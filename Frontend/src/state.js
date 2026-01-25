@@ -45,10 +45,18 @@ export function setCurrentUser(user) {
   setState({ currentUser: user });
 }
 
+function dedupeConvs(convs) {
+  const seen = new Map();
+  (convs || []).forEach(c => {
+    if (!c || !c._id) return;
+    seen.set(c._id, c);
+  });
+  return Array.from(seen.values());
+}
+
 export function setConversations(conversations) {
-  // Đảm bảo luôn là array
   const convArray = Array.isArray(conversations) ? conversations : [];
-  setState({ conversations: convArray });
+  setState({ conversations: dedupeConvs(convArray) });
 }
 
 export function resetState() {
@@ -61,7 +69,9 @@ export function resetState() {
 }
 
 export function addConversation(conversation) {
-  setState({ conversations: [...state.conversations, conversation] });
+  if (!conversation || !conversation._id) return;
+  const deduped = dedupeConvs([...state.conversations, conversation]);
+  setState({ conversations: deduped });
 }
 
 export function setCurrentConversation(conversation) {
