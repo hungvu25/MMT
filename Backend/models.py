@@ -271,8 +271,7 @@ class MessageModel:
             "sender_id": sender_id,
             "text": text,
             "msg_type": msg_type,
-            "created_at": now,
-            "receipts": {} # Can simplify if needed, keeping for read status
+            "created_at": now
         }
         
         # Add file metadata if present
@@ -310,7 +309,7 @@ class MessageModel:
         return message
     
     @staticmethod
-    def get_messages(conversation_id, limit=50):
+    def get_messages(conversation_id, limit=50, viewer_id=None):
         """Lấy messages từ mảng embedded"""
         try:
             conv_oid = ObjectId(conversation_id)
@@ -331,29 +330,19 @@ class MessageModel:
             msg['_id'] = str(msg['_id'])
             if isinstance(msg['created_at'], datetime):
                 msg['created_at'] = int(msg['created_at'].timestamp() * 1000)
+            # Remove legacy receipts, keep simple status
+            msg.pop('receipts', None)
+            msg['status'] = 'sent'
+
             result.append(msg)
             
         return result # Already in order if pushed in order
 
     @staticmethod
     def update_receipt(conversation_id, message_id, user_id, status):
-        """Update embedded message receipt status"""
-        # Complex update in array: messages.$[elem].receipts.user_id
-        try:
-            conv_oid = ObjectId(conversation_id)
-            msg_oid = ObjectId(message_id)
-        except:
-            return
+        # receipts disabled (no-op)
+        return
 
-        conversations_collection.update_one(
-            {"_id": conv_oid, "messages._id": msg_oid},
-            {"$set": {
-                "messages.$.receipts." + user_id: {
-                    "status": status, 
-                    "updated_at": datetime.now()
-                }
-            }}
-        )
 
 class ConversationModel:
     @staticmethod
@@ -403,8 +392,74 @@ class ConversationModel:
                 c['created_at'] = int(c['created_at'].timestamp() * 1000)
             if c.get('last_message') and c['last_message'].get('created_at'):
                 c['last_message']['created_at'] = int(c['last_message']['created_at'].timestamp() * 1000)
+            pinned = c.get('pinned_message')
+            if pinned:
+                if isinstance(pinned.get('pinned_at'), datetime):
+                    pinned['pinned_at'] = int(pinned['pinned_at'].timestamp() * 1000)
+                if isinstance(pinned.get('created_at'), datetime):
+                    pinned['created_at'] = int(pinned['created_at'].timestamp() * 1000)
             result.append(c)
         return result
+
+    @staticmethod
+    def pin_message(conversation_id, message_id, pinned_by):
+        try:
+            conv_oid = ObjectId(conversation_id)
+            msg_oid = ObjectId(message_id)
+        except:
+            return {"status": "error", "message": "Invalid IDs"}
+
+        conv = conversations_collection.find_one({"_id": conv_oid})
+        if not conv:
+            return {"status": "error", "message": "Conversation not found"}
+
+        msg = None
+        for m in conv.get("messages", []):
+            if m.get("_id") == msg_oid:
+                msg = m
+                break
+        if not msg:
+            return {"status": "error", "message": "Message not found"}
+
+        pinned = {
+            "message_id": str(msg_oid),
+            "sender_id": msg.get("sender_id"),
+            "text": msg.get("text"),
+            "msg_type": msg.get("msg_type"),
+            "file_url": msg.get("file_url"),
+            "file_name": msg.get("file_name"),
+            "file_size": msg.get("file_size"),
+            "created_at": msg.get("created_at"),
+            "pinned_by": pinned_by,
+            "pinned_at": datetime.now()
+        }
+
+        conversations_collection.update_one(
+            {"_id": conv_oid},
+            {"$set": {"pinned_message": pinned}}
+        )
+
+        # Prepare serializable copy
+        pinned_serializable = pinned.copy()
+        if isinstance(pinned_serializable.get("created_at"), datetime):
+            pinned_serializable["created_at"] = int(pinned_serializable["created_at"].timestamp() * 1000)
+        if isinstance(pinned_serializable.get("pinned_at"), datetime):
+            pinned_serializable["pinned_at"] = int(pinned_serializable["pinned_at"].timestamp() * 1000)
+
+        return {"status": "success", "pinned_message": pinned_serializable}
+
+    @staticmethod
+    def unpin_message(conversation_id):
+        try:
+            conv_oid = ObjectId(conversation_id)
+        except:
+            return {"status": "error", "message": "Invalid conversation id"}
+
+        conversations_collection.update_one(
+            {"_id": conv_oid},
+            {"$unset": {"pinned_message": ""}}
+        )
+        return {"status": "success", "pinned_message": None}
 
     @staticmethod
     def accept_conversation(conversation_id):

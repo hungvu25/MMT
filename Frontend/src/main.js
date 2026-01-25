@@ -234,7 +234,7 @@ function setupWebSocketHandlersGlobal() {
 
         // Add to state
         addMessage(data.conversation_id, msg);
-
+        
         // Check if conversation exists in list, if not, fetch it
         const conversationExists = state.conversations.find(c => c._id === data.conversation_id);
         
@@ -267,6 +267,7 @@ function setupWebSocketHandlersGlobal() {
             // Chỉ hiển thị nếu là tin nhắn của người khác
             if (!isMyMessage) {
                 const messageData = {
+                    id: msg._id,
                     type: msg.msg_type || "text",
                     user: msg.sender_id,
                     text: msg.text || '',
@@ -282,11 +283,34 @@ function setupWebSocketHandlersGlobal() {
                 if (msg.file_url) {
                     messageData.fileUrl = msg.file_url;
                     messageData.fileName = msg.file_name;
-                    messageData.fileSize = msg.file_size;
+                // file size/text already set; status not shown in UI
                 }
                 
                 appendMessageToUI(messageData);
             }
+        }
+    });
+
+    // Presence updates
+    onWSEvent('presence_update', (data) => {
+        document.dispatchEvent(new CustomEvent('presenceUpdate', { detail: data }));
+    });
+
+    // Pinned message updates
+    onWSEvent('pinned_message_updated', (data) => {
+        console.log("[App] 📌 Pinned message updated:", data);
+        const state = getState();
+        const { conversation_id, pinned_message } = data;
+
+        const updatedConvs = (state.conversations || []).map(c =>
+            c._id === conversation_id ? { ...c, pinned_message } : c
+        );
+        setConversations(updatedConvs);
+
+        if (state.currentConversation?._id === conversation_id) {
+            const updatedCurrent = { ...state.currentConversation, pinned_message };
+            setCurrentConversation(updatedCurrent);
+            updateChatHeader(updatedCurrent);
         }
     });
 
@@ -690,20 +714,34 @@ function setupChatLogic(sidebar, rightPanel) {
                 msgInput.value = "";
             } else {
                 // Text only message
+                const clientMsgId = "c_" + Date.now();
+                const message = {
+                    _id: clientMsgId,
+                    msg_type: "text",
+                    sender_id: state.currentUser.user_id,
+                    text,
+                    created_at: Date.now(),
+                    status: "sent",
+                };
+
+                // Update UI immediately
                 appendMessageToUI({
+                    id: message._id,
                     type: "text",
                     user: "Me",
                     text,
-                    time: new Date().toLocaleTimeString([], {
+                    time: new Date(message.created_at).toLocaleTimeString([], {
                         hour: "2-digit",
                         minute: "2-digit",
                     }),
                     isMe: true,
-                    status: "sending",
+                    status: "sent",
                 });
 
-                const clientMsgId = "c_" + Date.now();
+                // Update state cache
+                addMessage(currentConv._id, message);
 
+                // Send to server
                 sendEvent("send_message", {
                     conversation_id: currentConv._id,
                     client_msg_id: clientMsgId,
@@ -730,12 +768,19 @@ function setupChatLogic(sidebar, rightPanel) {
 // Listen to conversation selection
 document.addEventListener("selectConversation", (e) => {
     const conversation = e.detail.conversation;
-    console.log("[App] 👆 Selected conversation:", conversation);
+    console.log("[App] Selected conversation:", conversation);
 
+    const state = getState();
+    const isSameConversation = state.activeConversationId === conversation._id;
     setCurrentConversation(conversation);
 
-    // Clear old messages
-    clearMessages();
+    // Render cached messages immediately if available to avoid blank UI
+    if (state.messages?.[conversation._id]?.length) {
+        loadConversationMessages(conversation._id);
+    } else if (!isSameConversation) {
+        // Clear only when switching to a different conversation without cache
+        clearMessages();
+    }
 
     // Update header
     updateChatHeader(conversation);

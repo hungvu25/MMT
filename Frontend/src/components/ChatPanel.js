@@ -1,5 +1,6 @@
 import { createMessage } from './Message.js';
 import { getState } from '../state.js';
+import { sendEvent } from '../ws.js';
 
 export function createChatPanel() {
     const panel = document.createElement('main');
@@ -95,7 +96,22 @@ export function appendMessageToUI(msg) {
   const container = document.getElementById('messages-container');
   if (!container) return;
 
-  container.appendChild(createMessage(msg));
+  const state = getState();
+  const conversationId = state.activeConversationId;
+
+  const onPin = msg.id || msg._id ? (mid) => {
+    if (!conversationId) return;
+    sendEvent('pin_message', {
+      conversation_id: conversationId,
+      message_id: mid
+    });
+  } : null;
+
+  const el = createMessage(msg, { onPin });
+  if (msg.id) el.dataset.messageId = msg.id;
+  else if (msg._id) el.dataset.messageId = msg._id;
+
+  container.appendChild(el);
   container.scrollTop = container.scrollHeight;
 }
 
@@ -235,6 +251,15 @@ export function updateChatHeader(conversation) {
     chatName = conversation.name || 'Group Chat';
   }
 
+  const pinned = conversation.pinned_message;
+  const pinnedText = pinned
+    ? (pinned.text || pinned.file_name || (pinned.msg_type === 'image' ? '[Image]' : 'Pinned message'))
+    : '';
+  const pinnedMeta = pinned ? `Pinned by ${pinned.pinned_by || ''}` : '';
+  const pinnedTime = pinned?.created_at
+    ? new Date(pinned.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+    : '';
+
   header.innerHTML = `
     <div class="mr-4 md:hidden">
       <button id="menu-btn" class="p-2 -ml-2 rounded-md hover:bg-gray-100 text-gray-600">
@@ -260,7 +285,28 @@ export function updateChatHeader(conversation) {
         <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
       </button>
     </div>
+    ${pinned ? `<div class="mt-2 w-full bg-indigo-50 border border-indigo-100 text-indigo-800 text-xs px-3 py-2 rounded-lg flex items-center justify-between gap-2">
+        <div class="flex-1 min-w-0">
+          <div class="font-semibold truncate">${pinnedText}</div>
+          <div class="text-[11px] text-indigo-500 truncate">${pinnedMeta} ${pinnedTime ? '• ' + pinnedTime : ''}</div>
+        </div>
+        <div class="flex items-center gap-2">
+          <a href="#pin-${pinned.message_id}" class="text-[11px] text-indigo-600 hover:underline">Jump</a>
+          <button id="unpin-btn" class="p-2 rounded-full hover:bg-indigo-100 text-indigo-600" title="Unpin">
+            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+          </button>
+        </div>
+      </div>` : ''}
   `;
+
+  if (pinned) {
+    const unpinBtn = document.getElementById('unpin-btn');
+    if (unpinBtn) {
+      unpinBtn.addEventListener('click', () => {
+        sendEvent('unpin_message', { conversation_id: conversation._id });
+      });
+    }
+  }
 }
 
 export function loadConversationMessages(conversationId) {
@@ -281,6 +327,7 @@ export function loadConversationMessages(conversationId) {
   // Add messages
   messages.forEach(msg => {
     const messageData = {
+      id: msg._id,
       type: msg.msg_type || "text",
       user: msg.sender_id === currentUserId ? "Me" : msg.sender_id,
       text: msg.text,
@@ -289,6 +336,7 @@ export function loadConversationMessages(conversationId) {
         minute: "2-digit",
       }),
       isMe: msg.sender_id === currentUserId,
+      // status kept for internal logic only; UI no longer displays
       status: msg.status || "sent",
     };
     

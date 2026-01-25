@@ -191,14 +191,20 @@ def now_ms():
 
 async def ws_send(ws: WebSocket, type_: str, data: dict, request_id=None):
     try:
-        await ws.send_text(json.dumps({
+        payload = {
             "type": type_,
             "data": data,
             "request_id": request_id,
             "ts": now_ms()
-        }))
-    except:
-        pass
+        }
+        try:
+            text = json.dumps(payload)
+        except TypeError:
+            # Fallback for non-JSON-serializable types (e.g., ObjectId, datetime)
+            text = json.dumps(payload, default=str)
+        await ws.send_text(text)
+    except Exception as e:
+        print(f"[WS] send error: {e}")
 
 async def broadcast(conversation_id: str, type_: str, data: dict, exclude_sender_id: str = None):
     """Broadcast message to all in room, optionally excluding sender"""
@@ -208,6 +214,28 @@ async def broadcast(conversation_id: str, type_: str, data: dict, exclude_sender
             if exclude_sender_id and ws_user.get(ws) == exclude_sender_id:
                 continue
             await ws_send(ws, type_, data)
+        except:
+            pass
+
+async def notify_participants(conversation_id: str, type_: str, data: dict, exclude_user_id: str = None):
+    """Send event to all participants whether or not they're in the room"""
+    conv = conversations_collection.find_one({"_id": ObjectId(conversation_id)}) if len(conversation_id) == 24 else None
+    participants = conv.get("participants", []) if conv else []
+    for pid in participants:
+        if exclude_user_id and pid == exclude_user_id:
+            continue
+        ws = user_ws.get(pid)
+        if ws:
+            await ws_send(ws, type_, data)
+
+async def broadcast_presence(user_id: str, online: bool, last_seen=None):
+    """Notify all connected clients about presence change."""
+    payload = {"user_id": user_id, "online": online}
+    if last_seen:
+        payload["last_seen"] = last_seen
+    for ws in list(ws_user.keys()):
+        try:
+            await ws_send(ws, "presence_update", payload)
         except:
             pass
 
@@ -253,6 +281,8 @@ async def ws_endpoint(ws: WebSocket):
                 user_ws[user_id] = ws
 
                 await ws_send(ws, "auth_ok", {"user_id": user_id}, request_id)
+                # Broadcast presence online
+                await broadcast_presence(user_id, True)
                 
                 # Broadcast presence
                 for other_ws in list(ws_user.keys()):
@@ -320,11 +350,55 @@ async def ws_endpoint(ws: WebSocket):
             if type_ == "load_messages":
                 conv_id = data.get("conversation_id")
                 if conv_id:
-                    messages = MessageModel.get_messages(conv_id)
-                    await ws_send(ws, "messages_loaded", {
+                    try:
+                        messages = MessageModel.get_messages(conv_id, viewer_id=sender_id)
+                        await ws_send(ws, "messages_loaded", {
+                            "conversation_id": conv_id,
+                            "messages": messages
+                        }, request_id)
+                    except Exception as e:
+                        print(f"[WS] load_messages error: {e}")
+                        await ws_send(ws, "error", {
+                            "code": "LOAD_MESSAGES_ERROR",
+                            "message": str(e)
+                        }, request_id)
+                continue
+
+            # --- RECEIPT (deprecated/no-op) ---
+            if type_ == "receipt":
+                # Ignore deprecated receipt messages to avoid client errors
+                await ws_send(ws, "info", {"message": "receipts_disabled"}, request_id)
+                continue
+
+            # --- PIN MESSAGE ---
+            if type_ == "pin_message":
+                conv_id = data.get("conversation_id")
+                message_id = data.get("message_id")
+                result = ConversationModel.pin_message(conv_id, message_id, sender_id)
+                if result.get("status") == "success":
+                    payload = {
                         "conversation_id": conv_id,
-                        "messages": messages
-                    }, request_id)
+                        "pinned_message": result.get("pinned_message")
+                    }
+                    await broadcast(conv_id, "pinned_message_updated", payload)
+                    await notify_participants(conv_id, "pinned_message_updated", payload)
+                else:
+                    await ws_send(ws, "error", {"code": "PIN_ERROR", "message": result.get("message")}, request_id)
+                continue
+
+            # --- UNPIN MESSAGE ---
+            if type_ == "unpin_message":
+                conv_id = data.get("conversation_id")
+                result = ConversationModel.unpin_message(conv_id)
+                if result.get("status") == "success":
+                    payload = {
+                        "conversation_id": conv_id,
+                        "pinned_message": None
+                    }
+                    await broadcast(conv_id, "pinned_message_updated", payload)
+                    await notify_participants(conv_id, "pinned_message_updated", payload)
+                else:
+                    await ws_send(ws, "error", {"code": "UNPIN_ERROR", "message": result.get("message")}, request_id)
                 continue
 
             # --- SEND MESSAGE ---
@@ -351,6 +425,9 @@ async def ws_endpoint(ws: WebSocket):
 
                 server_msg_id = saved_msg['_id']
                 
+                # Add status field for frontend
+                saved_msg['status'] = 'sent'
+                
                 # Ack
                 await ws_send(ws, "send_ack", {
                     "conversation_id": conv_id,
@@ -360,11 +437,11 @@ async def ws_endpoint(ws: WebSocket):
                     "created_at": saved_msg["created_at"]
                 }, request_id)
 
-                # Broadcast to room (exclude sender to avoid duplicate)
+                # Broadcast to room (include sender so UI updates immediately)
                 await broadcast(conv_id, "new_message", {
                     "conversation_id": conv_id,
                     "message": saved_msg
-                }, exclude_sender_id=sender_id)
+                })
                 
                 # Notify all participants who are NOT in room
                 conv = conversations_collection.find_one({"_id": ObjectId(conv_id)}) if len(conv_id) == 24 else None
@@ -384,22 +461,6 @@ async def ws_endpoint(ws: WebSocket):
                                 })
                 continue
 
-            # --- RECEIPT ---
-            if type_ == "receipt":
-                conv_id = data.get("conversation_id")
-                message_id = data.get("message_id")
-                status = data.get("status")
-                if conv_id and message_id and status:
-                    MessageModel.update_receipt(conv_id, message_id, sender_id, status) # Updated signature
-                    await broadcast(conv_id, "receipt_update", {
-                        "conversation_id": conv_id,
-                        "message_id": message_id,
-                        "user_id": sender_id,
-                        "status": status,
-                        "updated_at": now_ms()
-                    })
-                continue
-            
             # --- SEARCH USERS ---
             if type_ == "search_users":
                 query = data.get("query", "")
@@ -635,3 +696,5 @@ async def ws_endpoint(ws: WebSocket):
             user_ws.pop(user_id, None)
             for conv_id in list(rooms.keys()):
                 rooms[conv_id].discard(ws)
+            # broadcast offline presence
+            await broadcast_presence(user_id, False, now_ms())

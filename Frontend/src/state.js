@@ -3,6 +3,7 @@ const state = {
   currentUser: null, // {user_id, username}
   conversations: [], // Danh sách conversations
   currentConversation: null, // Conversation đang mở
+  activeConversationId: null, // ID of active conversation
   messages: {}, // {conversation_id: [messages]}
 };
 
@@ -54,6 +55,7 @@ export function resetState() {
   state.currentUser = null;
   state.conversations = [];
   state.currentConversation = null;
+  state.activeConversationId = null;
   state.messages = {};
   notifyListeners();
 }
@@ -63,7 +65,10 @@ export function addConversation(conversation) {
 }
 
 export function setCurrentConversation(conversation) {
-  setState({ currentConversation: conversation });
+  setState({ 
+    currentConversation: conversation,
+    activeConversationId: conversation?._id || null
+  });
 }
 
 export function setMessages(conversationId, messages) {

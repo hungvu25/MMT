@@ -1,4 +1,5 @@
-export function createMessage(data) {
+export function createMessage(data, options = {}) {
+    const onPin = options.onPin;
     const isMe = data.isMe;
     const msgDiv = document.createElement('div');
     msgDiv.className = `group flex gap-3 ${isMe ? 'flex-row-reverse' : ''} hover:bg-gray-50/50 p-2 -mx-2 rounded-lg transition-colors`;
@@ -9,9 +10,9 @@ export function createMessage(data) {
     </div>
   `;
 
-    const statusIcon = data.status === 'seen'
-        ? '<svg class="w-3.5 h-3.5 text-indigo-600" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/><polyline points="20 6 9 17 4 12"/></svg>' // Double check mark (simulated)
-        : '<svg class="w-3.5 h-3.5 text-gray-400" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>'; // Single check
+    // Status UI removed (only sender names/time kept)
+    const statusText = '';
+    const statusIcon = '';
 
     let contentHtml = '';
     const isTextMessage = !data.type || data.type === 'text';
@@ -47,6 +48,12 @@ export function createMessage(data) {
         contentHtml = `<p class="text-slate-800 leading-relaxed whitespace-pre-wrap">${data.text || ''}</p>`;
     }
 
+    const pinButton = onPin
+        ? `<button class="pin-btn opacity-0 group-hover:opacity-100 transition text-slate-400 hover:text-indigo-600 p-1" title="Pin message">
+              <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="17" x2="12" y2="22"/><path d="M5 17h14v-1.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V6h1a2 2 0 0 0 0-4H8a2 2 0 0 0 0 4h1v4.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24Z"/></svg>
+           </button>`
+        : '';
+
     msgDiv.innerHTML = `
     ${!isMe ? avatar : ''}
     
@@ -54,20 +61,26 @@ export function createMessage(data) {
       <div class="flex items-baseline gap-2 mb-1 ${isMe ? 'flex-row-reverse' : ''}">
         ${!isMe ? `<span class="text-sm font-bold text-slate-900">${data.user}</span>` : ''}
         <span class="text-[11px] text-gray-400">${data.time}</span>
+        ${pinButton}
       </div>
       
       <div class="${isMe ? 'bg-indigo-600 text-white rounded-l-2xl rounded-tr-2xl rounded-br-sm' : 'bg-white border border-gray-100 shadow-sm rounded-r-2xl rounded-tl-2xl rounded-bl-sm'} px-4 py-2.5 w-fit">
          ${contentHtml}
       </div>
 
-      ${isMe ? `
-      <div class="mt-1 flex items-center justify-end gap-1">
-         <span class="text-[10px] text-slate-400 font-medium">Read</span>
-         ${statusIcon}
-      </div>
-      ` : ''}
+      ${isMe ? '' : ''}
     </div>
   `;
+
+    if (onPin && (data.id || data._id)) {
+        const btn = msgDiv.querySelector('.pin-btn');
+        if (btn) {
+            btn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                onPin(data.id || data._id);
+            });
+        }
+    }
 
     return msgDiv;
 }

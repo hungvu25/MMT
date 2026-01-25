@@ -6,6 +6,7 @@ import { showCreateGroupModal } from './CreateGroupModal.js';
 let cachedFriends = [];
 let lastSearchQuery = '';
 let friendsLoaded = false;
+let onlineMap = {};
 
 export function createSidebar() {
     const sidebar = document.createElement('aside');
@@ -318,9 +319,18 @@ function createConversationItem(conversation, state, isStranger = false) {
     
     // Get other user ID for direct chat
     let displayName = 'Unknown';
+    let isOnline = false;
     if (conversation.type === 'direct') {
         const otherUserId = conversation.participants.find(p => p !== currentUserId);
         displayName = otherUserId || 'Unknown User';
+        if (otherUserId) {
+            if (onlineMap[otherUserId] !== undefined) {
+                isOnline = onlineMap[otherUserId];
+            } else {
+                const friend = (cachedFriends || []).find(f => f.user_id === otherUserId);
+                isOnline = friend?.online || false;
+            }
+        }
     } else {
         displayName = conversation.name || 'Group Chat';
     }
@@ -351,7 +361,7 @@ function createConversationItem(conversation, state, isStranger = false) {
             <div class="w-11 h-11 rounded-full bg-gradient-to-br ${isStranger ? 'from-amber-500 to-orange-600' : 'from-indigo-500 to-purple-600'} flex items-center justify-center text-white text-base font-bold mr-3">
                 ${displayName[0].toUpperCase()}
             </div>
-            ${!isStranger ? '<div class="absolute -bottom-0.5 -right-0.5 w-3 h-3 bg-green-500 rounded-full border-2 border-slate-900"></div>' : ''}
+            ${!isStranger ? `<div class="absolute -bottom-0.5 -right-0.5 w-3 h-3 ${isOnline ? 'bg-green-500' : 'bg-slate-500'} rounded-full border-2 border-slate-900"></div>` : ''}
         </div>
         <div class="flex-1 min-w-0 text-left ml-3">
             <div class="flex items-center justify-between mb-0.5">
@@ -711,6 +721,7 @@ document.addEventListener('friendsList', (e) => {
         console.log("[Sidebar] Friends received:", cachedFriends);
         // Make sure we pass sidebar element to render in the correct place
         renderFriendsList(sidebar, cachedFriends);
+        updateSidebar(sidebar, getState());
 
         if (lastSearchQuery.length >= 2) {
             const results = filterSearchResults(lastSearchQuery);
@@ -728,6 +739,24 @@ document.addEventListener('friendRequests', (e) => {
     if (sidebar) {
         console.log("[Sidebar] Friend requests received:", e.detail);
         renderFriendRequests(sidebar, e.detail.received, e.detail.sent);
+    }
+});
+
+// Presence updates
+document.addEventListener('presenceUpdate', (e) => {
+    const { user_id, online } = e.detail || {};
+    if (!user_id) return;
+    const sidebar = document.querySelector('aside');
+    onlineMap[user_id] = !!online;
+    // Update cached friends online flag
+    cachedFriends = (cachedFriends || []).map(f =>
+        f.user_id === user_id ? { ...f, online: !!online } : f
+    );
+    if (sidebar) {
+        renderFriendsList(sidebar, cachedFriends);
+        // Re-render conversations to update green dot
+        const state = getState();
+        updateSidebar(sidebar, state);
     }
 });
 
@@ -771,7 +800,7 @@ function renderFriendsList(sidebar, friends) {
         
         const friendId = friend.user_id || friend;
         const friendName = friend.username || friendId;
-        const isOnline = friend.online || false;
+        const isOnline = onlineMap[friendId] !== undefined ? onlineMap[friendId] : (friend.online || false);
         const avatar = friend.avatar;
         
         console.log("[renderFriendsList] Friend details:", {friendId, friendName, isOnline, avatar});
