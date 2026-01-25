@@ -1,0 +1,9 @@
+fastapi
+uvicorn[standard]
+pymongo
+dnspython
+python-dotenv
+python-jose[cryptography]
+bcrypt
+python-multipart
+httpx

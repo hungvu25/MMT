@@ -2,7 +2,7 @@
 from datetime import datetime, timedelta
 from typing import Optional
 from jose import JWTError, jwt
-from passlib.context import CryptContext
+import bcrypt
 import os
 
 # Secret key settings
@@ -12,14 +12,24 @@ ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 30  # 30 minutes
 REFRESH_TOKEN_EXPIRE_DAYS = 7  # 7 days
 
-# Use bcrypt_sha256 to avoid the 72-byte bcrypt input limit while still using bcrypt
-pwd_context = CryptContext(schemes=["bcrypt_sha256", "bcrypt"], deprecated="auto")
-
 def verify_password(plain_password, hashed_password):
-    return pwd_context.verify(plain_password, hashed_password)
+    # Truncate password to 72 bytes to avoid bcrypt limitation
+    if not hashed_password:
+        return False
+    if len(plain_password.encode('utf-8')) > 72:
+        plain_password = plain_password[:72]
+    if isinstance(hashed_password, str):
+        hashed_password = hashed_password.encode('utf-8')
+    if not isinstance(hashed_password, (bytes, bytearray)):
+        return False
+    return bcrypt.checkpw(plain_password.encode('utf-8'), hashed_password)
 
 def get_password_hash(password):
-    return pwd_context.hash(password)
+    # Truncate password to 72 bytes to avoid bcrypt limitation
+    if len(password.encode('utf-8')) > 72:
+        password = password[:72]
+    hashed = bcrypt.hashpw(password.encode('utf-8'), bcrypt.gensalt())
+    return hashed.decode('utf-8')
 
 def create_access_token(data: dict, expires_delta: Optional[timedelta] = None):
     to_encode = data.copy()
