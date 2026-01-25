@@ -77,7 +77,13 @@ export function createMessage(data, options = {}) {
         if (btn) {
             btn.addEventListener('click', (e) => {
                 e.stopPropagation();
-                onPin(data.id || data._id);
+                const mid = data.id || data._id;
+                // Only allow pin when we have a real server id (24 hex)
+                if (!mid || mid.length !== 24) {
+                    console.warn("[Message] Cannot pin pending message without server id");
+                    return;
+                }
+                onPin(mid);
             });
         }
     }

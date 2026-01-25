@@ -339,6 +339,21 @@ function setupWebSocketHandlersGlobal() {
     // Xác nhận đã gửi
     onWSEvent('send_ack', (data) => {
         console.log("[App] ✅ Message sent:", data);
+        // Replace temp client id with server id in state
+        const { conversation_id, client_msg_id, server_msg_id } = data;
+        if (!conversation_id || !client_msg_id || !server_msg_id) return;
+        const state = getState();
+        const msgs = state.messages[conversation_id] || [];
+        const updated = msgs.map(m => {
+            if (m._id === client_msg_id) {
+                return { ...m, _id: server_msg_id };
+            }
+            return m;
+        });
+        setMessages(conversation_id, updated);
+        if (state.activeConversationId === conversation_id) {
+            loadConversationMessages(conversation_id);
+        }
     });
 
     // Nhận conversation mới được tạo

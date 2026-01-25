@@ -285,22 +285,37 @@ export function updateChatHeader(conversation) {
         <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
       </button>
     </div>
-    ${pinned ? `<div class="mt-2 w-full bg-indigo-50 border border-indigo-100 text-indigo-800 text-xs px-3 py-2 rounded-lg flex items-center justify-between gap-2">
-        <div class="flex-1 min-w-0">
-          <div class="font-semibold truncate">${pinnedText}</div>
-          <div class="text-[11px] text-indigo-500 truncate">${pinnedMeta} ${pinnedTime ? '• ' + pinnedTime : ''}</div>
-        </div>
-        <div class="flex items-center gap-2">
-          <a href="#pin-${pinned.message_id}" class="text-[11px] text-indigo-600 hover:underline">Jump</a>
-          <button id="unpin-btn" class="p-2 rounded-full hover:bg-indigo-100 text-indigo-600" title="Unpin">
-            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
-          </button>
-        </div>
-      </div>` : ''}
   `;
 
+  // Pinned bar separate, placed right below header to avoid overlay
+  let pinnedBar = document.getElementById('pinned-bar');
+  if (!pinnedBar) {
+    pinnedBar = document.createElement('div');
+    pinnedBar.id = 'pinned-bar';
+    // sticky just under header height (h-16 => 64px)
+    pinnedBar.className = 'sticky top-16 z-10 px-6 pb-2';
+    header.parentElement.insertBefore(pinnedBar, header.nextSibling);
+  }
+
+  pinnedBar.innerHTML = pinned ? `
+    <div class="w-full bg-indigo-50 border border-indigo-100 text-indigo-800 text-xs px-3 py-2 rounded-lg flex items-center justify-between gap-2 shadow-sm">
+      <div class="flex-1 min-w-0">
+        <div class="font-semibold truncate">${pinnedText}</div>
+        <div class="text-[11px] text-indigo-500 truncate">${pinnedMeta} ${pinnedTime ? '• ' + pinnedTime : ''}</div>
+      </div>
+      <div class="flex items-center gap-2">
+        <a href="#pin-${pinned.message_id}" class="text-[11px] text-indigo-600 hover:underline">Jump</a>
+        <button id="unpin-btn" class="p-2 rounded-full hover:bg-indigo-100 text-indigo-600" title="Unpin">
+          <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+        </button>
+      </div>
+    </div>
+  ` : '';
+
+  pinnedBar.style.display = pinned ? 'block' : 'none';
+
   if (pinned) {
-    const unpinBtn = document.getElementById('unpin-btn');
+    const unpinBtn = pinnedBar.querySelector('#unpin-btn');
     if (unpinBtn) {
       unpinBtn.addEventListener('click', () => {
         sendEvent('unpin_message', { conversation_id: conversation._id });
