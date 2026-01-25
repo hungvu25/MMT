@@ -302,16 +302,14 @@ async def ws_endpoint(ws: WebSocket):
             # --- GET OR CREATE DIRECT CONVERSATION ---
             if type_ == "get_direct_conversation":
                 other_user_id = data.get("other_user_id")
-                # ... check checks ...
                 if not other_user_id: 
                      continue
 
-                # Check if other user exists (by user_id )
+                # tìm user
                 target_user_id = None
                 if UserModel.get_user(other_user_id):
                     target_user_id = other_user_id
                 else:
-                    # Try username lookup
                     user_doc = UserModel.get_user_by_username(other_user_id)
                     if user_doc:
                         target_user_id = user_doc.get("_id")
@@ -411,14 +409,14 @@ async def ws_endpoint(ws: WebSocket):
 
                 if not conv_id or not client_msg_id: continue
 
-                # INSERT using NEW Embedded Model with file metadata
+                # INSERT message into db (conversation)
                 saved_msg = MessageModel.insert_message(
                     conv_id, sender_id, text, msg_type,
                     file_url=file_url, file_name=file_name, file_size=file_size
                 )
                 
                 if not saved_msg:
-                    # Error handling
+
                     continue
 
                 server_msg_id = saved_msg['_id']
@@ -441,7 +439,7 @@ async def ws_endpoint(ws: WebSocket):
                     "message": saved_msg
                 })
                 
-                # Notify all participants who are NOT in room
+                # Notify all participants who are not in room
                 conv = conversations_collection.find_one({"_id": ObjectId(conv_id)}) if len(conv_id) == 24 else None
                 if conv:
                     participants = conv.get('participants', [])

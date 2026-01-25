@@ -347,7 +347,7 @@ class MessageModel:
 class ConversationModel:
     @staticmethod
     def create_or_get_direct_conversation(user_id_1, user_id_2, initiator_id=None):
-        # ... logic similar to before but 'messages' array init ...
+        # Check if conversation already exists
         existing = conversations_collection.find_one({
             "type": "direct",
             "participants": {"$all": [user_id_1, user_id_2]}
