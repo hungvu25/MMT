@@ -484,11 +484,24 @@ function setupWebSocketHandlersGlobal() {
     // Member added
     onWSEvent('member_added', (data) => {
         console.log("[App] ➕ Member added:", data);
-        // Reload conversation if currently viewing it
         const state = getState();
-        if (state.currentConversation === data.conversation_id) {
-            sendEvent('get_conversations');
+        const current = state.currentConversation;
+
+        // If we’re looking at this convo, optimistically merge the new member so the right panel updates instantly
+        if (current?._id === data.conversation_id) {
+            const mergedMembers = Array.from(new Set([...(current.participants || []), data.member_id]));
+            const updatedConv = { ...current, participants: mergedMembers };
+
+            setCurrentConversation(updatedConv);
+            const updatedConvs = (state.conversations || []).map(c =>
+                c._id === updatedConv._id ? { ...c, participants: mergedMembers } : c
+            );
+            setConversations(updatedConvs);
+            updateChatHeader(updatedConv);
         }
+
+        // Still fetch the authoritative list to stay in sync
+        sendEvent('get_conversations');
     });
 
     // Member removed
@@ -523,7 +536,7 @@ function setupWebSocketHandlersGlobal() {
         
         // If currently viewing this conversation, clear it
         const state = getState();
-        if (state.currentConversation === data.conversation_id) {
+        if (state.currentConversation?._id === data.conversation_id) {
             setCurrentConversation(null);
             setMessages([]);
             

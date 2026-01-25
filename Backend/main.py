@@ -613,7 +613,18 @@ async def ws_endpoint(ws: WebSocket):
                                 await ws_send(member_ws, "new_conversation", {"conversation": conv})
                         
                         # Broadcast to all members in the room
-                        await broadcast(conversation_id, "member_added", {"member_id": new_member_id, "added_by": sender_id})
+                        await broadcast(conversation_id, "member_added", {"member_id": new_member_id, "added_by": sender_id, "conversation_id": conversation_id})
+
+                        # Broadcast updated conversation metadata to refresh participant list
+                        conv = conversations_collection.find_one({"_id": ObjectId(conversation_id)}, {"messages": 0})
+                        if conv:
+                            conv['_id'] = str(conv['_id'])
+                            if conv.get('created_at'):
+                                conv['created_at'] = int(conv['created_at'].timestamp() * 1000)
+                            if conv.get('last_message') and conv['last_message'].get('created_at'):
+                                conv['last_message']['created_at'] = int(conv['last_message']['created_at'].timestamp() * 1000)
+                            await broadcast(conversation_id, "conversation_updated", {"conversation": conv})
+                            await notify_participants(conversation_id, "conversation_updated", {"conversation": conv})
                     else:
                         await ws_send(ws, "error", {"code": "ADD_MEMBER_ERROR", "message": result.get("message")}, request_id)
                 continue
