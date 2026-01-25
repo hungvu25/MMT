@@ -121,7 +121,7 @@ async function handleLogin(userId, username, token) {
 
         onWSEvent('auth_ok', (data) => {
             clearTimeout(timer);
-            console.log("[App] ✅ Authenticated:", data);
+            console.log("[App] Authenticated:", data);
             setCurrentUser({ user_id: userId, username: username || userId });
 
             // Start token refresh
@@ -157,7 +157,7 @@ document.addEventListener('navigate', (e) => {
 
 // Token expired listener
 window.addEventListener('tokenExpired', () => {
-    console.log("[App] ❌ Token expired, logging out...");
+    console.log("[App] Token expired, logging out...");
     logout();
 });
 
@@ -206,9 +206,9 @@ function setupWebSocketHandlersGlobal() {
 
     // Nhận danh sách conversations
     onWSEvent('conversations_list', (data) => {
-        console.log("[App] 📋 Conversations loaded:", data.conversations);
-        console.log("[App] 📋 Is array?", Array.isArray(data.conversations));
-        console.log("[App] 📋 Length:", data.conversations?.length);
+        console.log("[App]  Conversations loaded:", data.conversations);
+        console.log("[App]  Is array?", Array.isArray(data.conversations));
+        console.log("[App]  Length:", data.conversations?.length);
 
         // Validate data
         if (data.conversations && Array.isArray(data.conversations)) {
@@ -221,14 +221,14 @@ function setupWebSocketHandlersGlobal() {
 
     // Nhận tin nhắn đã load
     onWSEvent('messages_loaded', (data) => {
-        console.log("[App] 💬 Messages loaded:", data.messages.length);
+        console.log("[App]  Messages loaded:", data.messages.length);
         setMessages(data.conversation_id, data.messages);
         loadConversationMessages(data.conversation_id);
     });
 
     // Nhận tin nhắn mới
     onWSEvent('new_message', (data) => {
-        console.log("[App] 📨 New message:", data);
+        console.log("[App]  New message:", data);
         const msg = data.message;
         const state = getState();
 
@@ -259,7 +259,6 @@ function setupWebSocketHandlersGlobal() {
             setConversations(updatedConversations);
         }
 
-        // ← SỬA: Chỉ hiển thị nếu KHÔNG phải tin nhắn của mình
         if (state.currentConversation?._id === data.conversation_id) {
             // Kiểm tra xem có phải tin nhắn của mình không
             const isMyMessage = msg.sender_id === state.currentUser?.user_id;
@@ -298,7 +297,7 @@ function setupWebSocketHandlersGlobal() {
 
     // Pinned message updates
     onWSEvent('pinned_message_updated', (data) => {
-        console.log("[App] 📌 Pinned message updated:", data);
+        console.log("[App]  Pinned message updated:", data);
         const state = getState();
         const { conversation_id, pinned_message } = data;
 
@@ -316,7 +315,7 @@ function setupWebSocketHandlersGlobal() {
 
     // Nhận thông báo tin nhắn mới từ người lạ (khi chưa join room)
     onWSEvent('new_message_notification', (data) => {
-        console.log("[App] 🔔 New message notification from stranger:", data);
+        console.log("[App]  New message notification from stranger:", data);
 
         // Thêm hoặc cập nhật conversation trong danh sách
         const state = getState();
@@ -338,7 +337,7 @@ function setupWebSocketHandlersGlobal() {
 
     // Xác nhận đã gửi
     onWSEvent('send_ack', (data) => {
-        console.log("[App] ✅ Message sent:", data);
+        console.log("[App]  Message sent:", data);
         // Replace temp client id with server id in state
         const { conversation_id, client_msg_id, server_msg_id } = data;
         if (!conversation_id || !client_msg_id || !server_msg_id) return;
@@ -358,7 +357,7 @@ function setupWebSocketHandlersGlobal() {
 
     // Nhận conversation mới được tạo
     onWSEvent('direct_conversation', (data) => {
-        console.log("[App] 💬 Direct conversation:", data.conversation);
+        console.log("[App]  Direct conversation:", data.conversation);
         const conv = data.conversation;
 
         // Thêm vào danh sách (nếu chưa có)
@@ -382,7 +381,7 @@ function setupWebSocketHandlersGlobal() {
 
     // Nhận conversation mới từ người lạ
     onWSEvent('new_conversation', (data) => {
-        console.log("[App] 🆕 New conversation from stranger:", data.conversation);
+        console.log("[App]  New conversation from stranger:", data.conversation);
         addConversation(data.conversation);
 
         // Hiển thị notification cho tin nhắn lạ
@@ -399,13 +398,13 @@ function setupWebSocketHandlersGlobal() {
 
     // Nhận lời mời kết bạn
     onWSEvent('friend_request_received', (data) => {
-        console.log("[App] 👥 Friend request from:", data.from_user_id);
+        console.log("[App]  Friend request from:", data.from_user_id);
         showFriendRequestNotification(data.from_user_id);
     });
 
     // Kết bạn thành công
     onWSEvent('friend_request_sent', (data) => {
-        console.log("[App] ✅ Friend request sent:", data);
+        console.log("[App]  Friend request sent:", data);
         import('./components/Sidebar.js').then(({ showNotification }) => {
             const targetUser = data.to_user_id || 'người dùng';
             showNotification(`Đã gửi lời mời kết bạn đến ${targetUser}`, 'success');
@@ -414,7 +413,7 @@ function setupWebSocketHandlersGlobal() {
 
     // Được chấp nhận kết bạn
     onWSEvent('friend_accepted', (data) => {
-        console.log("[App] ✅ Friend request accepted by:", data.user_id);
+        console.log("[App]  Friend request accepted by:", data.user_id);
         import('./components/Sidebar.js').then(({ showNotification }) => {
             showNotification(`${data.user_id} đã chấp nhận lời mời kết bạn!`, 'success');
         });
@@ -422,7 +421,7 @@ function setupWebSocketHandlersGlobal() {
 
     // Xử lý lỗi
     onWSEvent('error', (data) => {
-        console.error("[App] ❌ Error:", data);
+        console.error("[App]  Error:", data);
 
         import('./components/Sidebar.js').then(({ showNotification }) => {
             if (data.code === 'FRIEND_REQUEST_ERROR') {
@@ -439,7 +438,7 @@ function setupWebSocketHandlersGlobal() {
 
     // Xử lý kết quả tìm kiếm (để Sidebar có thể dùng)
     onWSEvent('search_results', (data) => {
-        console.log("[App] 🔍 Search results:", data.users);
+        console.log("[App]  Search results:", data.users);
         // Sidebar sẽ tự handle thông qua event này
         document.dispatchEvent(new CustomEvent('searchResults', {
             detail: { users: data.users }
@@ -448,7 +447,7 @@ function setupWebSocketHandlersGlobal() {
 
     // Friends list
     onWSEvent('friends_list', (data) => {
-        console.log("[App] 👥 Friends:", data.friends);
+        console.log("[App]  Friends:", data.friends);
         document.dispatchEvent(new CustomEvent('friendsList', {
             detail: { friends: data.friends }
         }));
@@ -456,7 +455,7 @@ function setupWebSocketHandlersGlobal() {
 
     // Friend requests
     onWSEvent('friend_requests', (data) => {
-        console.log("[App] 📋 Friend requests:", data);
+        console.log("[App]  Friend requests:", data);
         document.dispatchEvent(new CustomEvent('friendRequests', {
             detail: { received: data.received, sent: data.sent }
         }));
@@ -464,7 +463,7 @@ function setupWebSocketHandlersGlobal() {
 
     // Group created
     onWSEvent('group_created', (data) => {
-        console.log("[App] ✅ Group created:", data.conversation);
+        console.log("[App] Group created:", data.conversation);
         const conversation = data.conversation;
         addConversation(conversation);
         setCurrentConversation(conversation._id);
@@ -483,7 +482,7 @@ function setupWebSocketHandlersGlobal() {
 
     // Member added
     onWSEvent('member_added', (data) => {
-        console.log("[App] ➕ Member added:", data);
+        console.log("[App]  Member added:", data);
         const state = getState();
         const current = state.currentConversation;
 
@@ -506,7 +505,7 @@ function setupWebSocketHandlersGlobal() {
 
     // Member removed
     onWSEvent('member_removed', (data) => {
-        console.log("[App] ➖ Member removed:", data);
+        console.log("[App]  Member removed:", data);
         // Always refresh conversations to update participant list immediately
         sendEvent('get_conversations');
     });
@@ -529,7 +528,7 @@ function setupWebSocketHandlersGlobal() {
 
     // Removed from group
     onWSEvent('removed_from_group', (data) => {
-        console.log("[App] ⚠️ Removed from group:", data.conversation_id);
+        console.log("[App]  Removed from group:", data.conversation_id);
         import('./components/Sidebar.js').then(({ showNotification }) => {
             showNotification('Bạn đã bị xóa khỏi nhóm', 'warning');
         });
@@ -559,7 +558,7 @@ function setupWebSocketHandlersGlobal() {
 
     // Group info updated
     onWSEvent('group_info_updated', (data) => {
-        console.log("[App] 📝 Group info updated:", data);
+        console.log("[App]  Group info updated:", data);
         const state = getState();
         
         // Update conversations list
@@ -589,7 +588,7 @@ function setupWebSocketHandlersGlobal() {
     
     // Conversation deleted
     onWSEvent('conversation_deleted', (data) => {
-        console.log("[App] 🗑️ Conversation deleted:", data.conversation_id);
+        console.log("[App]  Conversation deleted:", data.conversation_id);
         const state = getState();
         
         // Remove from conversations list

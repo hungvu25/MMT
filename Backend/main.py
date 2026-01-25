@@ -1,4 +1,4 @@
-# main.py
+
 import json, time, os, shutil
 from pathlib import Path
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, Depends, Body, File, UploadFile, Form
@@ -200,7 +200,6 @@ async def ws_send(ws: WebSocket, type_: str, data: dict, request_id=None):
         try:
             text = json.dumps(payload)
         except TypeError:
-            # Fallback for non-JSON-serializable types (e.g., ObjectId, datetime)
             text = json.dumps(payload, default=str)
         await ws.send_text(text)
     except Exception as e:
@@ -307,7 +306,7 @@ async def ws_endpoint(ws: WebSocket):
                 if not other_user_id: 
                      continue
 
-                # Check if other user exists (by user_id or username)
+                # Check if other user exists (by user_id )
                 target_user_id = None
                 if UserModel.get_user(other_user_id):
                     target_user_id = other_user_id
@@ -364,9 +363,8 @@ async def ws_endpoint(ws: WebSocket):
                         }, request_id)
                 continue
 
-            # --- RECEIPT (deprecated/no-op) ---
+            # --- RECEIPT  ---
             if type_ == "receipt":
-                # Ignore deprecated receipt messages to avoid client errors
                 await ws_send(ws, "info", {"message": "receipts_disabled"}, request_id)
                 continue
 
@@ -503,8 +501,6 @@ async def ws_endpoint(ws: WebSocket):
             if type_ == "accept_friend_request":
                 from_user_id = data.get("from_user_id")
                 if from_user_id:
-                     # FriendModel.accept_friend_request(recipient, sender_of_req)
-                     # Here current user (sender_id) is the recipient of the request
                     success = FriendModel.accept_friend_request(sender_id, from_user_id)
                     await ws_send(ws, "friend_request_accepted", {"success": success, "friend_id": from_user_id}, request_id)
                     
@@ -541,7 +537,7 @@ async def ws_endpoint(ws: WebSocket):
                 await ws_send(ws, "friends_list", {"friends": friends}, request_id)
                 continue
             
-            # --- GET FRIEND REQUESTS (Updated) ---
+            # --- GET FRIEND REQUESTS  ---
             if type_ == "get_friend_requests":
                 # Returns { received: [], sent: [] }
                 requests = FriendModel.get_pending_requests(sender_id)

@@ -33,13 +33,13 @@ export function connectWS() {
   ws = new WebSocket("ws://127.0.0.1:8000/ws");
 
   ws.onopen = () => {
-    console.log("[WS] ✅ Connected");
+    console.log("[WS]  Connected");
   };
 
   ws.onmessage = (e) => {
     try {
       const msg = JSON.parse(e.data);
-      console.log("[WS] 📨 Received:", msg);
+      console.log("[WS]  Received:", msg);
 
       // Gọi handlers theo type
       const type = msg.type;
@@ -52,12 +52,12 @@ export function connectWS() {
         eventHandlers["*"].forEach((cb) => cb(msg.data, msg));
       }
     } catch (err) {
-      console.log("[WS] ⚠️ Parse error:", err);
+      console.log("[WS]  Parse error:", err);
     }
   };
 
   ws.onclose = (e) => {
-    console.log("[WS] ❌ Connection closed", e.code);
+    console.log("[WS]  Connection closed", e.code);
     // Auto reconnect sau 3s (chỉ khi không phải close thủ công)
     if (e.code !== 1000) {
       setTimeout(() => {
@@ -68,7 +68,7 @@ export function connectWS() {
   };
 
   ws.onerror = (e) => {
-    console.log("[WS] ⚠️ Error:", e);
+    console.log("[WS]  Error:", e);
   };
 
   return ws;

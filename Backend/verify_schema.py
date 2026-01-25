@@ -45,7 +45,7 @@ def test_flow():
         assert authB["type"] == "auth_ok", "Auth B failed"
         
         # Consume presence updates if any
-        # (Skip)
+        
 
         # 4. Friend Request & Embedding Check
         print("\n[4/6] Testing Friend Request Embedding...")
