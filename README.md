@@ -99,14 +99,7 @@ cd Backend
 pip install -r requirements.txt
 ```
 
-3. **Tạo file `.env`:**
-```env
-MONGO_URI=mongodb://localhost:27017/
-MONGO_DB=chat_app
-SECRET_KEY=your-secret-key-here
-```
-
-4. **Chạy server:**
+3. **Chạy server:**
 ```bash
 uvicorn main:app --reload --host 0.0.0.0 --port 8000
 ```
@@ -268,24 +261,3 @@ Frontend sẽ chạy tại: `http://localhost:5173`
 - JWT access token hết hạn sau 15 phút
 - JWT refresh token hết hạn sau 7 ngày
 
-## 🐛 Troubleshooting
-
-### WebSocket không kết nối
-- Kiểm tra Backend có đang chạy không
-- Kiểm tra URL WebSocket trong `ws.js`: `ws://127.0.0.1:8000/ws`
-
-### Token hết hạn liên tục
-- Kiểm tra `SECRET_KEY` trong file `.env`
-- Kiểm tra logic refresh token trong `refreshToken.js`
-
-### MongoDB connection error
-- Kiểm tra MongoDB đang chạy
-- Kiểm tra `MONGO_URI` trong file `.env`
-
-## 👥 Tác giả
-
-Dự án cuối kỳ môn Lập Trình Mạng
-
-## 📄 License
-
-ISC
