@@ -232,8 +232,12 @@ function setupWebSocketHandlersGlobal() {
         const msg = data.message;
         const state = getState();
 
-        // Add to state
-        addMessage(data.conversation_id, msg);
+        // Add to state (avoid duplicates if already stored)
+        const existingMsgs = state.messages?.[data.conversation_id] || [];
+        const alreadyExists = existingMsgs.some(m => m._id === msg._id);
+        if (!alreadyExists) {
+            addMessage(data.conversation_id, msg);
+        }
         
         // Check if conversation exists in list, if not, fetch it
         const conversationExists = state.conversations.find(c => c._id === data.conversation_id);
@@ -343,12 +347,21 @@ function setupWebSocketHandlersGlobal() {
         if (!conversation_id || !client_msg_id || !server_msg_id) return;
         const state = getState();
         const msgs = state.messages[conversation_id] || [];
-        const updated = msgs.map(m => {
+        const hasServerMsg = msgs.some(m => m._id === server_msg_id);
+        const updated = msgs.reduce((acc, m) => {
             if (m._id === client_msg_id) {
-                return { ...m, _id: server_msg_id };
+                if (hasServerMsg) {
+                    return acc; // Drop duplicate optimistic copy
+                }
+                const updatedMsg = { ...m, _id: server_msg_id };
+                if (data.created_at) updatedMsg.created_at = data.created_at;
+                if (data.status) updatedMsg.status = data.status;
+                acc.push(updatedMsg);
+                return acc;
             }
-            return m;
-        });
+            acc.push(m);
+            return acc;
+        }, []);
         setMessages(conversation_id, updated);
         if (state.activeConversationId === conversation_id) {
             loadConversationMessages(conversation_id);
@@ -506,7 +519,35 @@ function setupWebSocketHandlersGlobal() {
     // Member removed
     onWSEvent('member_removed', (data) => {
         console.log("[App]  Member removed:", data);
-        // Always refresh conversations to update participant list immediately
+        const state = getState();
+        const updatedConvs = (state.conversations || []).map(c => {
+            if (c._id !== data.conversation_id) return c;
+            const updatedParticipants = (c.participants || []).filter(p => p !== data.member_id);
+            return { ...c, participants: updatedParticipants };
+        });
+        setConversations(updatedConvs);
+
+        if (state.currentConversation?._id === data.conversation_id) {
+            const updatedCurrent = {
+                ...state.currentConversation,
+                participants: (state.currentConversation.participants || []).filter(p => p !== data.member_id)
+            };
+            setCurrentConversation(updatedCurrent);
+            updateChatHeader(updatedCurrent);
+        }
+
+        // If current user was removed, ensure the conversation is cleared locally
+        if (data.member_id === state.currentUser?.user_id) {
+            const filtered = updatedConvs.filter(c => c._id !== data.conversation_id);
+            setConversations(filtered);
+            if (state.currentConversation?._id === data.conversation_id) {
+                setCurrentConversation(null);
+                setMessages(data.conversation_id, []);
+                updateChatHeader(null);
+            }
+        }
+
+        // Always refresh conversations to stay in sync
         sendEvent('get_conversations');
     });
 
@@ -533,26 +574,17 @@ function setupWebSocketHandlersGlobal() {
             showNotification('Bạn đã bị xóa khỏi nhóm', 'warning');
         });
         
-        // If currently viewing this conversation, clear it
         const state = getState();
+        const updatedConvs = (state.conversations || []).filter(c => c._id !== data.conversation_id);
+        setConversations(updatedConvs);
+
         if (state.currentConversation?._id === data.conversation_id) {
             setCurrentConversation(null);
-            setMessages([]);
-            
-            // Clear chat panel
-            const chatPanel = document.getElementById('chat-panel');
-            if (chatPanel) {
-                chatPanel.innerHTML = '<div class="flex items-center justify-center h-full text-gray-400">Chọn một đoạn chat để bắt đầu nhắn tin</div>';
-            }
-            
-            // Clear right panel
-            const rightPanel = document.getElementById('right-panel');
-            if (rightPanel) {
-                rightPanel.innerHTML = '';
-            }
+            setMessages(data.conversation_id, []);
+            updateChatHeader(null);
         }
-        
-        // Reload conversations to remove this group from list
+
+        // Reload conversations to keep authoritative list
         sendEvent('get_conversations');
     });
 
@@ -598,6 +630,7 @@ function setupWebSocketHandlersGlobal() {
         // If currently viewing this conversation, clear it
         if (state.currentConversation?._id === data.conversation_id) {
             setCurrentConversation(null);
+            setMessages(data.conversation_id, []);
             clearMessages();
             updateChatHeader(null);
         }
@@ -681,7 +714,8 @@ function setupChatLogic(sidebar, rightPanel) {
             
             if (!text && files.length === 0) return;
 
-            const currentConv = state.currentConversation;
+            const currentState = getState();
+            const currentConv = currentState.currentConversation;
             if (!currentConv) {
                 alert("Please select a conversation first!");
                 return;
@@ -692,6 +726,20 @@ function setupChatLogic(sidebar, rightPanel) {
                 for (const file of files) {
                     const isImage = file.type.startsWith('image/');
                     const fileSize = (file.size / 1024).toFixed(1) + ' KB';
+                    const clientMsgId = `c_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+                    const previewUrl = isImage ? URL.createObjectURL(file) : null;
+
+                    const optimisticMessage = {
+                        _id: clientMsgId,
+                        msg_type: isImage ? "image" : "file",
+                        sender_id: currentState.currentUser?.user_id,
+                        text: text || '',
+                        file_url: previewUrl || undefined,
+                        file_name: file.name,
+                        file_size: fileSize,
+                        created_at: Date.now(),
+                        status: "sending",
+                    };
                     
                     // Create FormData for file upload
                     const formData = new FormData();
@@ -701,9 +749,11 @@ function setupChatLogic(sidebar, rightPanel) {
                     
                     // Show uploading message
                     appendMessageToUI({
+                        id: clientMsgId,
                         type: isImage ? "image" : "file",
                         user: "Me",
                         text: text || '',
+                        fileUrl: previewUrl || undefined,
                         fileName: file.name,
                         fileSize: fileSize,
                         time: new Date().toLocaleTimeString([], {
@@ -713,6 +763,9 @@ function setupChatLogic(sidebar, rightPanel) {
                         isMe: true,
                         status: "sending",
                     });
+
+                    // Update state cache so message doesn't disappear on re-render
+                    addMessage(currentConv._id, optimisticMessage);
                     
                     try {
                         // Upload file to backend
@@ -731,9 +784,28 @@ function setupChatLogic(sidebar, rightPanel) {
                         
                         const result = await response.json();
                         console.log('[App] File uploaded:', result);
+
+                        // Update cached message with real file URL
+                        const stateAfter = getState();
+                        const msgs = stateAfter.messages[currentConv._id] || [];
+                        const updatedMsgs = msgs.map(m => {
+                            if (m._id === clientMsgId) {
+                                return {
+                                    ...m,
+                                    file_url: result.file_url,
+                                    file_name: file.name,
+                                    file_size: fileSize
+                                };
+                            }
+                            return m;
+                        });
+                        setMessages(currentConv._id, updatedMsgs);
+                        if (stateAfter.activeConversationId === currentConv._id) {
+                            loadConversationMessages(currentConv._id);
+                        }
+                        if (previewUrl) URL.revokeObjectURL(previewUrl);
                         
                         // Send message via WebSocket with file info
-                        const clientMsgId = "c_" + Date.now();
                         sendEvent("send_message", {
                             conversation_id: currentConv._id,
                             client_msg_id: clientMsgId,

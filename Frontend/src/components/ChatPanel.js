@@ -121,6 +121,21 @@ export function clearMessages() {
   container.innerHTML = '';
 }
 
+export function showEmptyChatState() {
+  const container = document.getElementById('messages-container');
+  if (!container) return;
+  container.innerHTML = `
+    <div class="flex items-center justify-center h-full text-gray-400">
+      <div class="text-center">
+        <svg class="w-16 h-16 mx-auto mb-4 opacity-50" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
+        </svg>
+        <p class="text-sm">Select a conversation to start chatting</p>
+      </div>
+    </div>
+  `;
+}
+
 // File upload state
 let selectedFiles = [];
 
@@ -236,6 +251,42 @@ export function clearSelectedFiles() {
 export function updateChatHeader(conversation) {
   const header = document.getElementById('chat-header');
   if (!header) return;
+
+  if (!conversation) {
+    header.innerHTML = `
+      <div class="mr-4 md:hidden">
+        <button id="menu-btn" class="p-2 -ml-2 rounded-md hover:bg-gray-100 text-gray-600">
+           <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+        </button>
+      </div>
+      
+      <div class="flex items-center min-w-0 flex-1">
+        <div class="mr-3 relative">
+           <div class="w-10 h-10 rounded-lg bg-gray-200 text-gray-600 flex items-center justify-center font-bold text-lg">?</div>
+        </div>
+        <div>
+          <h2 class="font-bold text-slate-800 text-lg leading-tight truncate flex items-center gap-2">
+            Select a conversation
+          </h2>
+          <p class="text-xs text-slate-500 truncate">Choose a chat from the sidebar to start messaging</p>
+        </div>
+      </div>
+
+      <div class="flex items-center space-x-1 ml-4 border-l pl-4 border-gray-200 h-8">
+        <button class="p-2 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-full transition-colors relative" title="Pinned Messages">
+          <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="17" x2="12" y2="22"/><path d="M5 17h14v-1.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V6h1a2 2 0 0 0 0-4H8a2 2 0 0 0 0 4h1v4.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24Z"/></svg>
+        </button>
+        <button id="info-btn" class="p-2 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-full transition-colors hidden xl:block" title="Details">
+          <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
+        </button>
+      </div>
+    `;
+
+    const pinnedBar = document.getElementById('pinned-bar');
+    if (pinnedBar) pinnedBar.remove();
+    showEmptyChatState();
+    return;
+  }
 
   const state = getState();
   const currentUserId = state.currentUser?.user_id;
